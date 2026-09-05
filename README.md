@@ -104,9 +104,12 @@ make backup        # 执行全自动数据库与附件压缩备份
 
 ## 📋 3. 核心设计与 50 项需求实现追踪
 
-- **SWR-USR-004 首次改密双重阻断**：后端依赖注入拦截器 [`check_fcp_status`](backend/app/api/deps.py)（错误码 `10008`）与前端全局路由守卫 [`guard.ts`](frontend/src/router/guard.ts)。
-- **SWR-DEV-004 11 类设备专有参数强校验**：PLC 严格校验 IPv4 格式、风机风量风压大于零、三相电机绝缘等级等。
-- **SWR-MNT-008 单事务巡检异常联锁提单**：现场巡检判定异常时，原子生成抢修单并将关联设备状态同步变更为 `FAULTY`。
+- **SWR-DEV-001 4 级层级拓扑树 (工厂 $\rightarrow$ 部门 $\rightarrow$ 系统 $\rightarrow$ 设备信息)**：管理员统筹录入并管理 4 级拓扑结构，设备信息标准化挂载。
+- **SWR-USR-001/002 三大标准工业角色与免工种数据隔离**：精简内置 `ADMIN`、`ENGINEER`、`TECHNICIAN` 三大角色（不设车间主管），彻底取消责任工种数据隔离，消除工种壁垒与信息孤岛。
+- **SWR-MNT-001/004 小时级设备维护计划与精确倒计时**：编制设备维护计划内部倒计时周期单位最小为**小时**，后台小时级动态扫描并精准计算到期时刻。
+- **SWR-MNT-007 现场维护单、工单编辑与工作完成证据**：技术员接单后，具备**编辑工单信息**及**上传现场图片作为工作完成证据**功能。
+- **SWR-MNT-008 单事务现场维护异常联锁提单**：现场维护判定异常时，原子生成抢修单并将关联设备状态同步变更为 `FAULTY`。
+- **SWR-DSH-001 数据平台 (FCM设备运维管理平台)**：集中呈现设备健康状态、倒计时指标与维保统计。
 - **SWR-FLT-005 故障并发抢单乐观锁**：单 SQL 条件原子更新解决多人并发抢单冲突，返回 `409 Conflict (40003)`。
 - **SWR-KB-004 300ms 智能推荐与经验资产沉淀**：元数据过滤 + 文本加权双阶段打分推荐，故障复盘自动沉淀为知识条目。
 - **SWR-NFR-005 车间现场平板触控适配**：$\ge 48\text{px}$ 垂直热区、大色块防误触单选卡片、拍照上传平滑锚定。
@@ -117,9 +120,11 @@ make backup        # 执行全自动数据库与附件压缩备份
 
 所有架构设计与规范文档均已归档于 `docs/` 目录：
 
-1. **[50项系统需求规范说明书 (SRS)](docs/system_requirements_specification.md)**
-2. **[软件详细设计说明书 (SDD)](docs/software_detailed_design.md)**
-3. **[全场景部署与运维实战指南 (Linux/Docker)](docs/system_deployment_guide.md)**
-4. **[Docker 容器化专项部署指南](docs/docker_deployment_guide.md)**
-5. **[三轮工程反省与设计溯源报告](docs/requirements_reflection_audit.md)**
-6. **[项目全量交付总报告](project_delivery_walkthrough.md)**
+1. **[业务需求规格说明书 V1.0 (PRD)](docs/requirements_V1.md)**
+2. **[系统需求规格说明书 (SRS)](docs/system_requirements_specification.md)**
+3. **[软件需求规格说明书 (Software SRS)](docs/software_requirements_specification.md)**
+4. **[系统架构与概要设计说明书 (SDD)](docs/system_design_document.md)**
+5. **[软件详细设计说明书 (Detailed SDD)](docs/software_detailed_design.md)**
+6. **[全场景部署与运维实战指南 (Linux/Docker)](docs/system_deployment_guide.md)**
+7. **[Docker 容器化专项部署指南](docs/docker_deployment_guide.md)**
+8. **[工程反省与设计溯源报告](docs/requirements_reflection_audit.md)**

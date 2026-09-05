@@ -47,18 +47,18 @@ MaintainWise 专为工业制造车间中高可靠性、高协同性的设备维�
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │                   表现层 (Presentation Layer - Vue3 + TS)              │
-│  [车间工控平板巡检视图]     [工程师技术工作台]     [管理员综合大盘/报表]    │
+│ [车间工控平板现场维护视图]   [工程师技术工作台]   [数据平台 (FCM设备运维管理平台)]│
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ HTTPS (RESTful API / JSON)
 ┌───────────────────────────────────▼────────────────────────────────────┐
 │              网关与安全控制层 (API Gateway & Security Filters)          │
-│   JWT 身份认证  │  RBAC 权限守卫  │  工作类型数据域拦截  │  全局审计拦截器 │
+│   JWT 身份认证  │  RBAC 权限守卫  │  免工种隔离全局协同  │  全局审计拦截器 │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
 ┌───────────────────────────────────▼────────────────────────────────────┐
 │                    应用服务层 (Application Services)                   │
 │ ┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌──────────────┐ │
-│ │  用户权限服务  │ │  设备台账服务  │ │  维护巡检服务  │ │  故障SLA服务  │ │
+│ │  用户权限服务  │ │  设备信息服务  │ │  设备维护服务  │ │  故障SLA服务  │ │
 │ └───────────────┘ └───────────────┘ └───────────────┘ └──────────────┘ │
 │ ┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌──────────────┐ │
 │ │ 知识推荐引擎  │ │  培训档案服务  │ │  数据导入导出  │ │ 邮件调度中心 │ │
@@ -81,11 +81,11 @@ MaintainWise 专为工业制造车间中高可靠性、高协同性的设备维�
 ```mermaid
 erDiagram
     sys_users ||--o{ equipments : "manages"
-    sys_users ||--o{ inspection_records : "inspects"
+    sys_users ||--o{ inspection_records : "maintains"
     sys_users ||--o{ fault_records : "handles"
     
-    equipment_locations ||--o{ equipment_locations : "parent-child"
-    equipment_locations ||--o{ equipments : "installs_at(leaf)"
+    equipment_locations ||--o{ equipment_locations : "4-level: factory-dept-system"
+    equipment_locations ||--o{ equipments : "mounts_at(system)"
     
     equipments ||--o{ equipment_params : "has_custom_fields"
     equipments ||--o{ equipment_files : "attaches"
@@ -110,13 +110,13 @@ erDiagram
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Running : 录入台账启用
+    [*] --> Running : 录入设备信息启用
     
     Running --> MaintenancePending : 维护到期 (系统定时自动跃迁)
-    MaintenancePending --> Running : 巡检全项正常打卡
+    MaintenancePending --> Running : 现场维护单全项正常提交
     
-    Running --> Faulty : 巡检发现异常 / 现场主动报修
-    MaintenancePending --> Faulty : 巡检项勾选异常 (联锁生成故障)
+    Running --> Faulty : 现场维护发现异常 / 现场主动报修
+    MaintenancePending --> Faulty : 现场维护单勾选异常 (联锁生成故障)
     Faulty --> Running : 故障解决确认闭环
     
     Running --> Shutdown : 计划检修 / 停产保养 (人工切换)
@@ -134,7 +134,7 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Open : 巡检异常生成 / 主动填报报修
+    [*] --> Open : 维护异常生成 / 主动填报报修
     
     Open --> InProgress : 工程师接单认领 (记录响应时间戳)
     
@@ -149,7 +149,7 @@ stateDiagram-v2
     Closed --> [*] : 自动进入知识库全文检索沉淀
 ```
 
-### 2.4 巡检异常联锁派发故障单的强一致性时序图 (REQ-MNT-008, 第一次反省)
+### 2.4 现场维护异常联锁派发故障单的强一致性时序图 (REQ-MNT-008, 第一次反省)
 
 ```mermaid
 sequenceDiagram
@@ -160,17 +160,17 @@ sequenceDiagram
     participant Event as 领域事件总线
     actor Eng as 责任工程师
     
-    Tech->>API: 提交巡检表单 (各项正常/异常判定 + 现场照片附件ID)
+    Tech->>API: 认领维护工单、编辑工单信息并上传完成证据图片，提交现场维护单 (各项正常/异常判定 + 现场照片)
     API->>TX: 开启数据库事务 BEGIN TRANSACTION
-    TX->>TX: 1. 保存 inspection_records 主表
-    TX->>TX: 2. 批量保存 inspection_record_details 明细
+    TX->>TX: 1. 保存 inspection_records 主表 (现场维护单)
+    TX->>TX: 2. 批量保存 inspection_record_details 明细与工作完成证据
     alt 检查明细中包含异常项 (is_normal == false)
         TX->>TX: 3. 构建 fault_records 实体 (状态: Open, 级别由异常评估)
         TX->>TX: 4. 回填生成的 fault_id 至异常检查明细行
         TX->>TX: 5. 跃迁目标设备状态: Running/Pending -> Faulty
     else 全部检查项正常
         TX->>TX: 3. 更新设备状态为 Running
-        TX->>TX: 4. 推算并更新下次维护到期时间 (当前时间 + 计划周期天数)
+        TX->>TX: 4. 推算并更新下次维护到期时间 (当前时间 + 计划周期小时/天)
     end
     TX->>API: 提交事务 COMMIT (原子性保证)
     API-->>Tech: 返回提交成功 (若有异常展示新生成的故障工单号)
@@ -203,8 +203,8 @@ CREATE TABLE sys_users (
     employee_no VARCHAR(32) NOT NULL UNIQUE,
     email VARCHAR(128) NOT NULL,
     phone VARCHAR(32),
-    role_code VARCHAR(32) NOT NULL, -- 'ADMIN', 'ENGINEER', 'TECHNICIAN'
-    work_type VARCHAR(32) NOT NULL, -- 'ELECTRICAL', 'MECHANICAL', 'AUTOMATION', 'GENERAL'
+    role_code VARCHAR(32) NOT NULL, -- 'ADMIN', 'ENGINEER', 'TECHNICIAN' (精简内置三大角色，不设车间主管)
+    work_type VARCHAR(32) DEFAULT 'GENERAL', -- 兼容保留字段；创建账号免责任工种隔离，取消工种壁垒
     is_active BOOLEAN NOT NULL DEFAULT TRUE, -- 仅支持软禁用
     force_change_password BOOLEAN NOT NULL DEFAULT TRUE, -- 首次登录强制改密
     password_updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -242,18 +242,19 @@ CREATE INDEX idx_audit_module ON sys_audit_logs(module_name, action_type);
 
 ---
 
-### 3.2 设备台账与位置层级数据表 (REQ-DEV-001 ~ 009)
+### 3.2 设备信息与4级层级拓扑数据表 (REQ-DEV-001 ~ 009)
 
-#### 3. `equipment_locations` 5级位置分类树表 (REQ-DEV-001, 002)
+#### 3. `equipment_locations` 4级拓扑层级表 (工厂/部门/系统) (REQ-DEV-001, 002)
 ```sql
 CREATE TABLE equipment_locations (
     id BIGSERIAL PRIMARY KEY,
     parent_id BIGINT REFERENCES equipment_locations(id) ON DELETE RESTRICT,
     location_name VARCHAR(128) NOT NULL,
     location_code VARCHAR(64) NOT NULL UNIQUE,
-    level_depth INT NOT NULL CHECK (level_depth BETWEEN 1 AND 5), -- 最大5级
-    tree_path VARCHAR(255) NOT NULL, -- 如 '/1/4/12/' 便于高效递归检索
-    is_leaf BOOLEAN NOT NULL DEFAULT TRUE, -- 仅叶子节点可挂载设备
+    node_type VARCHAR(32) NOT NULL, -- 'FACTORY' (工厂), 'DEPARTMENT' (部门), 'SYSTEM' (系统)
+    level_depth INT NOT NULL CHECK (level_depth BETWEEN 1 AND 3), -- 1:工厂, 2:部门, 3:系统
+    tree_path VARCHAR(255) NOT NULL, -- 如 '/1/4/' 便于高效递归检索
+    is_leaf BOOLEAN NOT NULL DEFAULT TRUE, -- 系统节点为叶子节点，挂载第4级“设备信息”
     sort_order INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     created_by BIGINT REFERENCES sys_users(id),
@@ -263,25 +264,26 @@ CREATE TABLE equipment_locations (
 );
 CREATE INDEX idx_loc_parent ON equipment_locations(parent_id);
 CREATE INDEX idx_loc_path ON equipment_locations(tree_path);
+CREATE INDEX idx_loc_type ON equipment_locations(node_type);
 ```
 
-#### 4. `equipments` 设备台账主表 (REQ-DEV-003, 005)
+#### 4. `equipments` 设备信息主表 (REQ-DEV-003, 005)
 ```sql
 CREATE TABLE equipments (
     id BIGSERIAL PRIMARY KEY,
     equipment_code VARCHAR(64) NOT NULL UNIQUE,
     equipment_name VARCHAR(128) NOT NULL,
     equipment_type VARCHAR(32) NOT NULL, -- SENSOR, PLC, FAN, MOTOR, INVERTER, HMI, SERVO, HYDRAULIC, PNEUMATIC, CONVEYOR, OTHER
-    work_type VARCHAR(32) NOT NULL, -- 归属专业: ELECTRICAL, MECHANICAL, AUTOMATION, GENERAL
-    location_id BIGINT NOT NULL REFERENCES equipment_locations(id) ON DELETE RESTRICT,
+    work_type VARCHAR(32) NOT NULL DEFAULT 'GENERAL', -- 归属专业分类，不参与数据隔离
+    location_id BIGINT NOT NULL REFERENCES equipment_locations(id) ON DELETE RESTRICT, -- 关联系统层级(Level 3)
     manufacturer VARCHAR(128),
     model_spec VARCHAR(128) NOT NULL,
     serial_number VARCHAR(128),
     purchase_date DATE,
     commission_date DATE,
     warranty_expiry_date DATE,
-    maintenance_interval_days INT NOT NULL DEFAULT 30, -- 基准周期
-    next_maintenance_date DATE,
+    maintenance_interval_hours INT NOT NULL DEFAULT 720, -- 维护基准周期(小时)，最小单位为小时
+    next_maintenance_time TIMESTAMP, -- 精确到小时的下次维护时间戳
     responsible_engineer_id BIGINT REFERENCES sys_users(id),
     status VARCHAR(32) NOT NULL DEFAULT 'RUNNING', -- RUNNING, MAINTENANCE_PENDING, FAULTY, SHUTDOWN, SCRAPPED
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -291,9 +293,9 @@ CREATE TABLE equipments (
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
 CREATE INDEX idx_eq_code_name ON equipments(equipment_code, equipment_name);
-CREATE INDEX idx_eq_type_work ON equipments(equipment_type, work_type);
+CREATE INDEX idx_eq_type ON equipments(equipment_type);
 CREATE INDEX idx_eq_status ON equipments(status);
-CREATE INDEX idx_eq_next_maint ON equipments(next_maintenance_date);
+CREATE INDEX idx_eq_next_maint ON equipments(next_maintenance_time);
 ```
 
 #### 5. `equipment_params` 11类设备专有参数扩展表 (REQ-DEV-004)
@@ -324,12 +326,13 @@ CREATE TABLE equipment_params (
 CREATE TABLE equipment_files (
     id BIGSERIAL PRIMARY KEY,
     equipment_id BIGINT REFERENCES equipments(id) ON DELETE SET NULL,
-    file_tag VARCHAR(32) NOT NULL, -- PHOTO, NAMEPLATE, MANUAL, SCHEMATIC, PLC_PROG, FAULT_IMG, OTHER
+    file_tag VARCHAR(32) NOT NULL, -- PHOTO, NAMEPLATE, MANUAL, SCHEMATIC, PLC_PROG, FAULT_IMG, WORK_PROOF, OTHER
     original_filename VARCHAR(255) NOT NULL,
     storage_path VARCHAR(512) NOT NULL,
     file_size_bytes BIGINT NOT NULL,
     mime_type VARCHAR(128) NOT NULL,
     file_sha256 VARCHAR(64) NOT NULL,
+    is_linked BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     created_by BIGINT REFERENCES sys_users(id)
 );
@@ -338,18 +341,18 @@ CREATE INDEX idx_files_eq_tag ON equipment_files(equipment_id, file_tag);
 
 ---
 
-### 3.3 维护计划与巡检执行数据表 (REQ-MNT-001 ~ 011)
+### 3.3 设备维护与现场维护单数据表 (REQ-MNT-001 ~ 011)
 
-#### 7. `maintenance_plans` 维护计划与 SOP 表 (REQ-MNT-001, 003)
+#### 7. `maintenance_plans` 设备维护计划与设备维护内容表 (REQ-MNT-001, 003)
 ```sql
 CREATE TABLE maintenance_plans (
     id BIGSERIAL PRIMARY KEY,
     plan_code VARCHAR(64) NOT NULL UNIQUE,
     plan_name VARCHAR(128) NOT NULL,
-    plan_type VARCHAR(32) NOT NULL, -- DAILY, WEEKLY, MONTHLY, ANNUAL
-    interval_days INT NOT NULL,
+    plan_type VARCHAR(32) NOT NULL, -- HOURLY, DAILY, WEEKLY, MONTHLY, ANNUAL
+    interval_hours INT NOT NULL, -- 倒计时周期最小单位为小时 (如24小时、168小时、720小时)
     version_no VARCHAR(16) NOT NULL DEFAULT 'V1.0',
-    sop_content TEXT NOT NULL, -- SOP富文本指导内容
+    sop_content TEXT NOT NULL, -- 设备维护内容富文本/操作标准
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     created_by BIGINT REFERENCES sys_users(id),
@@ -359,21 +362,21 @@ CREATE TABLE maintenance_plans (
 );
 ```
 
-#### 8. `maintenance_plan_items` 维护检查清单配置表 (REQ-MNT-002)
+#### 8. `maintenance_plan_items` 设备维护内容清单配置表 (REQ-MNT-002)
 ```sql
 CREATE TABLE maintenance_plan_items (
     id BIGSERIAL PRIMARY KEY,
     plan_id BIGINT NOT NULL REFERENCES maintenance_plans(id) ON DELETE CASCADE,
     item_order INT NOT NULL DEFAULT 1,
-    check_item_name VARCHAR(128) NOT NULL,
-    standard_benchmark TEXT NOT NULL,
+    check_item_name VARCHAR(128) NOT NULL, -- 设备维护内容项名称
+    standard_benchmark TEXT NOT NULL, -- 检查与判定技术标准
     guide_image_id BIGINT REFERENCES equipment_files(id),
     is_required BOOLEAN NOT NULL DEFAULT TRUE
 );
 CREATE INDEX idx_plan_items ON maintenance_plan_items(plan_id, item_order);
 ```
 
-#### 9. `maintenance_tasks` 维护待办调度工单表 (REQ-MNT-004, 006)
+#### 9. `maintenance_tasks` 设备维护待办调度工单表 (REQ-MNT-004, 006)
 ```sql
 CREATE TABLE maintenance_tasks (
     id BIGSERIAL PRIMARY KEY,
@@ -381,26 +384,30 @@ CREATE TABLE maintenance_tasks (
     plan_id BIGINT NOT NULL REFERENCES maintenance_plans(id),
     equipment_id BIGINT NOT NULL REFERENCES equipments(id),
     assigned_tech_id BIGINT REFERENCES sys_users(id),
+    claimed_at TIMESTAMP, -- 技术员认领接单时间
     plan_version_snapshot VARCHAR(16) NOT NULL, -- 快照版本
-    scheduled_date DATE NOT NULL,
-    due_date DATE NOT NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'PENDING', -- PENDING, IN_PROGRESS, COMPLETED, OVERDUE
+    scheduled_time TIMESTAMP NOT NULL, -- 计划开始时间戳(小时级)
+    due_time TIMESTAMP NOT NULL, -- 截止时间戳(小时级倒计时)
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING', -- PENDING, CLAIMED, IN_PROGRESS, COMPLETED, OVERDUE
+    work_order_notes TEXT, -- 技术员接单后可编辑的工单内容/备注说明
+    completion_proof_file_ids JSONB DEFAULT '[]'::jsonb, -- 技术员上传的工作完成证据图片ID清单
     completed_at TIMESTAMP,
     is_overdue BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_tasks_eq_due ON maintenance_tasks(equipment_id, due_date, status);
+CREATE INDEX idx_tasks_eq_due ON maintenance_tasks(equipment_id, due_time, status);
 ```
 
-#### 10. `inspection_records` 巡检打卡执行总表 (REQ-MNT-007, 008)
+#### 10. `inspection_records` 现场维护单总表 (REQ-MNT-007, 008)
 ```sql
 CREATE TABLE inspection_records (
     id BIGSERIAL PRIMARY KEY,
     task_id BIGINT REFERENCES maintenance_tasks(id),
     equipment_id BIGINT NOT NULL REFERENCES equipments(id),
-    snapshot_location_id BIGINT NOT NULL REFERENCES equipment_locations(id), -- 工位快照
-    inspector_id BIGINT NOT NULL REFERENCES sys_users(id),
+    snapshot_location_id BIGINT NOT NULL REFERENCES equipment_locations(id), -- 发生时系统/位置快照
+    inspector_id BIGINT NOT NULL REFERENCES sys_users(id), -- 执行技术员
     has_anomaly BOOLEAN NOT NULL DEFAULT FALSE, -- 是否发现异常
+    work_summary TEXT, -- 现场维护工作说明与技术员填报内容
     execution_start_time TIMESTAMP NOT NULL,
     execution_end_time TIMESTAMP NOT NULL DEFAULT NOW(),
     overall_remarks TEXT,
@@ -409,16 +416,16 @@ CREATE TABLE inspection_records (
 CREATE INDEX idx_insp_eq_date ON inspection_records(equipment_id, created_at);
 ```
 
-#### 11. `inspection_record_details` 逐项巡检打卡明细表 (REQ-MNT-007, 008)
+#### 11. `inspection_record_details` 现场维护单逐项明细表 (REQ-MNT-007, 008)
 ```sql
 CREATE TABLE inspection_record_details (
     id BIGSERIAL PRIMARY KEY,
     record_id BIGINT NOT NULL REFERENCES inspection_records(id) ON DELETE CASCADE,
     plan_item_id BIGINT NOT NULL,
-    check_item_name_snapshot VARCHAR(128) NOT NULL,
+    check_item_name_snapshot VARCHAR(128) NOT NULL, -- 设备维护内容项快照
     is_normal BOOLEAN NOT NULL, -- TRUE:正常, FALSE:异常
     anomaly_desc TEXT, -- 异常时必填
-    evidence_file_id BIGINT REFERENCES equipment_files(id), -- 异常时强制必填照片
+    evidence_file_id BIGINT REFERENCES equipment_files(id), -- 异常时照片证据/工作完成证据
     interlocked_fault_id BIGINT -- 自动联锁生成的故障单外键
 );
 CREATE INDEX idx_insp_detail_rec ON inspection_record_details(record_id);
@@ -656,15 +663,15 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 * $I_{\text{part}}$：故障部件位置命中相同专业词（如“轴承”、“电容”）记 1.0，否则记 0
 * $I_{\text{featured}}$：为系统标定的“典型案例”则额外获得 1.0 加成
 
-### 4.2 维护调度与动态倒计时推算算法 (REQ-MNT-004, 006)
+### 4.2 设备维护调度与动态倒计时推算算法 (REQ-MNT-004, 006)
 
-每日零点，后台调度器执行全量设备扫描：
+后台常驻调度器执行全量设备维护扫描（支持以小时为最小周期单位）：
 1. **状态前置判定**：检查设备 `status`。若为 `SHUTDOWN` 或 `SCRAPPED`，跳过调度。
-2. **倒计时与到期推算**：
-   $$\Delta t = \text{next\_maintenance\_date} - \text{current\_date}$$
-   * 若 $\Delta t = 0$ 且设备状态为 `RUNNING`：系统自动更新设备状态为 `MAINTENANCE_PENDING`，并在 `maintenance_tasks` 中生成派发任务。
-   * 若 $\Delta t \in \{7, 3, 1\}$：查询 `maintenance_notify_configs`，若该阶段开启，且在 `maintenance_notify_logs` 中不存在已发记录，则向责任组投递邮件。
-   * 若 $\Delta t < -3$ 且任务未完成：标记任务为 `OVERDUE`，每日清晨 08:00 投递催办告警邮件。
+2. **倒计时与到期推算 (最小单位：小时)**：
+   $$\Delta t = \text{next\_maintenance\_time} - \text{current\_time}$$
+   * 若 $\Delta t \le 0$ 且设备状态为 `RUNNING`：系统自动更新设备状态为 `MAINTENANCE_PENDING`，并在 `maintenance_tasks` 中生成派发现场维护单。
+   * 若 $\Delta t \in \{168\text{h}, 72\text{h}, 24\text{h}\}$（或管理员自定义提前预警小时/天节点）：查询 `maintenance_notify_configs`，若该阶段开启，且在 `maintenance_notify_logs` 中不存在已发记录，则向指定组投递预警邮件。
+   * 若 $\Delta t < -72\text{h}$ 且任务未完成：标记任务为 `OVERDUE`，投递催办告警邮件。
 
 ### 4.3 SLA 破线告警轮询引擎 (REQ-FLT-008)
 
@@ -674,7 +681,7 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
   若仍处于 `OPEN` 且 $\Delta t_{\text{resp}} > \text{SLA\_Response\_Limit}$，标记 `is_sla_response_breached = TRUE` 并发送升级催办。
 * **解决时效监控**：
   $$\Delta t_{\text{resolve}} = \text{now}() - \text{reported\_at}$$
-  若未进入 `RESOLVED` 或 `CLOSED` 且 $\Delta t_{\text{resolve}} > \text{SLA\_Resolve\_Limit}$，标记 `is_sla_resolve_breached = TRUE`，在首页大盘高亮显示破线红牌。
+  若未进入 `RESOLVED` 或 `CLOSED` 且 $\Delta t_{\text{resolve}} > \text{SLA\_Resolve\_Limit}$，标记 `is_sla_resolve_breached = TRUE`，在数据平台高亮显示破线红牌。
 
 ---
 
@@ -689,31 +696,34 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 * `POST /api/v1/auth/forgot-password`：输入邮箱发送 15 分钟临时重置链接。
 * `POST /api/v1/auth/reset-password`：校验重置 Token 并提交新密码。
 * `GET /api/v1/users`：分页查询用户列表（仅管理员，支持工号/姓名/角色过滤）。
-* `POST /api/v1/users`：创建新用户（工号、角色、专业工作类型）。
+* `POST /api/v1/users`：创建新用户（工号、角色：Admin/Engineer/Technician，免责任工种数据隔离）。
 * `PUT /api/v1/users/{id}`：更新用户账号资料与启禁用状态（仅管理员）。
 * `DELETE /api/v1/users/{id}`：安全软删除用户账号（仅管理员，保留历史业务审计外键）。
 
-### 5.2 设备台账与位置层级 (REQ-DEV-001 ~ 009)
-* `GET /api/v1/locations/tree`：获取 5 级位置分类树形拓扑结构。
-* `POST /api/v1/locations`：创建位置分类节点（非叶子节点禁止挂设备）。
-* `DELETE /api/v1/locations/{id}`：删除节点（严格防孤儿校验：存在子节点或挂载设备时拦截）。
-* `GET /api/v1/equipments`：综合条件分页查询设备台账（自动注入工作类型数据域过滤）。
-* `GET /api/v1/equipments/{id}`：获取设备全量台账档案及 11 类专有参数。
-* `POST /api/v1/equipments`：新建设备台账（通用字段 + 专有动态参数）。
-* `PUT /api/v1/equipments/{id}`：更新设备台账信息。
+### 5.2 设备信息与4级层级拓扑 (REQ-DEV-001 ~ 009)
+* `GET /api/v1/locations/tree`：获取 4 级树形拓扑结构 (工厂 $\rightarrow$ 部门 $\rightarrow$ 系统 $\rightarrow$ 设备信息)。
+* `POST /api/v1/locations`：创建工厂、部门、系统层级节点（管理员权限）。
+* `DELETE /api/v1/locations/{id}`：删除节点（严格防孤儿校验：存在子节点或挂载设备信息时拦截）。
+* `GET /api/v1/equipments`：综合条件分页查询设备信息（免工种隔离，全局可见）。
+* `GET /api/v1/equipments/{id}`：获取设备全量档案及 11 类专有参数。
+* `POST /api/v1/equipments`：新建设备信息（通用字段 + 专有动态参数，挂载系统节点）。
+* `PUT /api/v1/equipments/{id}`：更新设备信息。
 * `PUT /api/v1/equipments/{id}/status`：人工切换设备运行/停机状态。
 * `DELETE /api/v1/equipments/{id}`：安全软删除设备（仅管理员与工程师权限）。
 * `GET /api/v1/equipments/{id}/timeline`：获取设备全生命周期电子维修履历时间线。
-* `POST /api/v1/equipments/import`：Excel 批量导入设备台账（返回解析预览及校验清单）。
-* `GET /api/v1/equipments/export`：按筛选条件导出设备台账 Excel。
+* `POST /api/v1/equipments/import`：Excel 批量导入设备信息（返回解析预览及校验清单）。
+* `GET /api/v1/equipments/export`：按筛选条件导出设备信息 Excel。
 
-### 5.3 维护计划与现场巡检 (REQ-MNT-001 ~ 011)
-* `GET /api/v1/maintenance/plans`：获取维护计划列表与 SOP。
-* `POST /api/v1/maintenance/plans`：新建维护计划与检查清单。
+### 5.3 设备维护与现场维护单 (REQ-MNT-001 ~ 011)
+* `GET /api/v1/maintenance/plans`：获取设备维护计划列表与设备维护内容。
+* `POST /api/v1/maintenance/plans`：新建设备维护计划与设备维护内容清单（支持小时级周期）。
 * `PUT /api/v1/maintenance/plans/{id}`：修改维护计划（自动触发版本升迁 V1.0 $\rightarrow$ V1.1）。
-* `GET /api/v1/maintenance/my-tasks`：技术员查询当前登录人的待执行巡检任务列表。
-* `POST /api/v1/maintenance/inspections/submit`：**现场巡检打卡核心聚合接口**（单数据库事务原子处理：打卡记录、异常检测、自动联锁生成故障单、设备状态跃迁）。
-* `GET /api/v1/maintenance/statistics/completion-rate`：多维度统计维护按时完成率。
+* `GET /api/v1/maintenance/my-tasks`：技术员查询当前登录人的待执行现场维护任务列表。
+* `PUT /api/v1/maintenance/tasks/{id}/claim`：技术员认领/接手现场维护工单。
+* `PUT /api/v1/maintenance/tasks/{id}/edit`：技术员接单后编辑维护工单内容与处理备注。
+* `POST /api/v1/maintenance/tasks/{id}/proof`：技术员上传现场工作完成证据图片。
+* `POST /api/v1/maintenance/inspections/submit`：**现场维护单核心聚合提单接口**（单数据库事务原子处理：现场维护单记录、设备维护内容判定、工作完成证据归档、异常检测、自动联锁生成故障单、设备状态跃迁）。
+* `GET /api/v1/maintenance/statistics/completion-rate`：多维度统计设备维护按时完成率。
 
 ### 5.4 故障管理与知识库检索 (REQ-FLT-001 ~ 009, REQ-KB-001 ~ 006)
 * `POST /api/v1/faults/recommend-similar`：**录入故障时实时智能排查推荐**（输入文本，返回相似案例 Top-3）。
@@ -725,12 +735,12 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 * `GET /api/v1/knowledge/search`：知识库高性能全文检索与多维筛选。
 * `PUT /api/v1/knowledge/{id}/feature`：标定/取消“典型故障案例”。
 
-### 5.5 培训管理与工作台大盘 (REQ-TRN-001 ~ 005, REQ-DSH-001 ~ 004)
+### 5.5 培训管理与数据平台 (REQ-TRN-001 ~ 005, REQ-DSH-001 ~ 004)
 * `POST /api/v1/training/courses`：创建培训课程（支持直接关联挂接知识库典型案例）。
 * `POST /api/v1/training/records`：录入培训现场实施纪实与签到。
 * `POST /api/v1/training/scores`：录入学员考核成绩（不合格自动标记待复训）。
 * `GET /api/v1/training/profile/{userId}`：查询员工全生命周期技术技能成长档案。
-* `GET /api/v1/dashboard/metrics`：获取首页顶部核心资产健康度统计卡片。
+* `GET /api/v1/dashboard/metrics`：获取 FCM设备运维管理平台（数据平台）核心资产健康度统计卡片。
 * `GET /api/v1/dashboard/my-todo`：获取基于角色的差异化智能待办工作台列表。
 * `GET /api/v1/dashboard/charts`：获取 30 天故障发生趋势与维护完成率图表数据。
 
@@ -742,15 +752,9 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 1. **密码学存储**：用户口令使用带有随机 Salt 的 `bcrypt` 算法哈希加盐存储（Cost 因子 = 12）。
 2. **防暴破拦截中间件**：基于 Redis 记录 IP 和用户名失败计数。连续 5 次失败，触发 15 分钟锁定期。
 3. **生产单班次会话与 Token 超时**：Access Token 有效期设定为 480 分钟（8小时），全面覆盖车间 8 小时单班次免重复登录；前端监听无键鼠事件连续 30 分钟触发安全登出。
-4. **防越权数据隔离切面**：
-   ```python
-   # 数据权限切面伪代码
-   def apply_work_type_scope(query, current_user):
-       if current_user.role == 'ADMIN' or current_user.work_type == 'GENERAL':
-           return query # 综合/管理员放行全量设备
-       # 电气/机械/自动化仅允许查询归属专业设备
-       return query.filter(Equipment.work_type == current_user.work_type)
-   ```
+4. **免工种隔离全局敏捷协同**：
+   - 取消责任工种隔离限制，消除信息孤岛；
+   - 系统管理员、工程师、技术员各司其职，面向全厂所有系统与设备开放跨工种协同维护与报修权限。
 
 ### 6.2 180天操作审计与防篡改策略 (REQ-SYS-005)
 1. **统一审计切面**：对所有 `POST`、`PUT`、`DELETE` 操作自动拦截，异步提取请求人、IP、变更前数据镜像与变更后 Payload，格式化计算 JSON Diff。
@@ -762,9 +766,10 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 2. **大小控制**：现场照片单张 $\le 10$ MB，PDF/程序附件单个 $\le 50$ MB。
 
 ### 6.4 前端细粒度 RBAC 与无权限功能直接关闭机制 (REQ-USR-001)
-1. **侧边栏菜单级物理收敛**：管理员专用模块（用户与班组管理、系统设置与审计）由 `v-if="authStore.isAdmin"` 控制，非管理员角色（车间主管、工程师、技术员）左侧菜单完全不展示入口。
-2. **全局指令 `v-permission` 按钮级移除**：未授权角色登录后，相关操作按钮（如“录入设备”、“导出Excel”、“删除”、“编制维护计划”、“升级版本”、“编制实操新课程”等）通过 `v-permission` 挂载时直接从 DOM 树物理移除，杜绝未授权按钮造成用户误点击与 403 报错提示。
-3. **路由守卫拦截**：直接敲击未授权 URL（如 `/users`）时，路由守卫直接重定向至 403 页面，不向后端发出非法 API 请求。
+1. **侧边栏菜单级物理收敛**：管理员专用模块（用户与班组管理、系统设置与审计）由 `v-if="authStore.isAdmin"` 控制，非管理员角色（工程师、技术员）左侧菜单完全不展示入口（系统不设车间主管）。
+2. **全局指令 `v-permission` 按钮级移除**：未授权角色登录后，相关操作按钮（如“录入设备信息”、“导出Excel”、“删除”、“编制维护计划”、“升级版本”、“编制实操新课程”等）通过 `v-permission` 挂载时直接从 DOM 树物理移除，杜绝未授权按钮造成用户误点击与 403 报错提示。
+3. **技术员接单后权限开放**：技术员认领现场维护工单后，界面开放**工单信息编辑**与**现场工作完成证据图片上传**组件。
+4. **路由守卫拦截**：直接敲击未授权 URL（如 `/users`）时，路由守卫直接重定向至 403 页面，不向后端发出非法 API 请求。
 
 ---
 
@@ -774,35 +779,35 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 
 | 需求编号 | 需求名称 | 对应数据库设计 (Tables) | 对应后端接口 (API Endpoints) | 前端视图与交互组件 | 验收测试验证方案 |
 |:---|:---|:---|:---|:---|:---|
-| **REQ-USR-001** | 四层角色定义与无权限功能直接关闭 | `sys_users.role_code` | 全局 RBAC 拦截器 | 侧边栏菜单收敛 + `v-permission` DOM移除 | 切换4种角色登录，验证按钮与菜单直接关闭，0报错 |
-| **REQ-USR-002** | 工作类型与数据范围隔离 | `sys_users.work_type` | `apply_work_type_scope` 切面 | 设备台账与工单列表专业过滤条 | 电气用户登录无法查看机械风机设备 |
-| **REQ-USR-003** | 账号全生命周期管理 | `sys_users` (无物理删除) | `POST/PUT/DELETE /api/v1/users` | 用户管理列表、编辑弹窗 | 禁用或软删除员工账号，历史台账修改人仍准确显示 |
+| **REQ-USR-001** | 三大标准角色与无权限功能直接关闭 | `sys_users.role_code` | 全局 RBAC 拦截器 | 侧边栏菜单收敛 + `v-permission` DOM移除 | 切换3种角色登录（不设车间主管），验证按钮与菜单直接关闭，0报错 |
+| **REQ-USR-002** | 全局设备协同与免工种数据隔离 | `sys_users.work_type` | 全局协同查询路由 | 设备信息与工单列表全局查看 | 取消工种隔离限制，技术员可跨专业查看与维护全厂设备 |
+| **REQ-USR-003** | 账号全生命周期管理 | `sys_users` (无物理删除) | `POST/PUT/DELETE /api/v1/users` | 用户管理列表、编辑弹窗 | 创建账号不设车间主管角色与责任工种，软删除员工账号历史记录完整 |
 | **REQ-USR-004** | 密码安全与过期轮换 | `sys_users.password_updated_at` | `POST /api/v1/auth/force-change-password` | 强制改密弹窗 (不可关闭) | 新建账号首次登录，不改密无法进入主页 |
 | **REQ-USR-005** | 密码自助找回与重置 | Redis 临时 Token (15分钟) | `POST /api/v1/auth/reset-password` | 忘记密码页、重置邮件模板 | 申请重置，点击邮件链接重设密码并校验过期失效 |
 | **REQ-USR-006** | 登录防护与会话安全 | `sys_users.failed_login_attempts` | `POST /api/v1/auth/login` | 登录表单、锁定剩余倒计时提示 | 连续5次错误密码，第6次输入正确密码仍拒绝 |
 | **REQ-USR-007** | 全局创建修改人审计 | 业务表 `created_by, updated_by` | 实体持久化拦截器自动注入 | 详情页底部“录入人/最后修改人”标签 | 工程师编辑设备参数，详情页即刻显示修改人姓名 |
 | **REQ-USR-008** | 操作级细粒度权限矩阵 | RBAC 权限字典 | API 动作鉴权中间件 | 录入/编辑/删除/导出按钮显隐控制 | 技术员直接发送 POST 导出请求，返回 403 |
-| **REQ-DEV-001** | 5级位置分类树形结构 | `equipment_locations` | `GET/POST /api/v1/locations` | 树形组织控件 (TreeSelect) | 创建5级层级，在非叶子节点挂设备触发提示拦截 |
-| **REQ-DEV-002** | 层级节点防孤儿校验 | `equipment_locations` 外键校验 | `DELETE /api/v1/locations/{id}` | 树节点删除确认弹窗 | 删除下挂有设备的产线节点，接口报 400 阻止 |
-| **REQ-DEV-003** | 11类设备通用台账字段 | `equipments` | `GET/POST /api/v1/equipments` | 设备台账录入与编辑表单 | 录入完整台账，校验必填项与编码唯一性 |
+| **REQ-DEV-001** | 4级层级拓扑树 (工厂/部门/系统/设备) | `equipment_locations` | `GET/POST /api/v1/locations` | 4级树形拓扑控件 (TreeSelect) | 管理员录入工厂、部门、系统并在系统下挂载设备，深度与成环校验生效 |
+| **REQ-DEV-002** | 层级节点防孤儿校验 | `equipment_locations` 外键校验 | `DELETE /api/v1/locations/{id}` | 树节点删除确认弹窗 | 删除下挂有设备的系统节点，接口报 400 阻止 |
+| **REQ-DEV-003** | 11类设备通用信息规范化录入 | `equipments` | `GET/POST /api/v1/equipments` | 设备信息录入与编辑表单 | 录入完整设备信息，校验必填项与编码唯一性，免工种绑定 |
 | **REQ-DEV-004** | 11类设备差异化专有参数 | `equipment_params` (强类型+JSONB) | `GET/PUT /api/v1/equipments/{id}` | 动态参数渲染组件 (根据设备类型切换) | 切换到PLC展示IP与IO点数，切换风机展示风量风压 |
-| **REQ-DEV-005** | 设备生命周期有限状态机 | `equipments.status` | `PUT /api/v1/equipments/{id}/status` | 状态标签 (Tag) 与生命周期流转面板 | 模拟到期自动转待维护，巡检正常自动恢复正常 |
+| **REQ-DEV-005** | 设备生命周期有限状态机 | `equipments.status` | `PUT /api/v1/equipments/{id}/status` | 状态标签 (Tag) 与生命周期流转面板 | 模拟到期自动转待维护，维护单提交正常自动恢复正常 |
 | **REQ-DEV-006** | 标签化多格式附件管理 | `equipment_files` | `POST /api/v1/files/upload` | 附件管理抽屉、PDF 在线预览器 | 上传图纸与程序，验证单文件限制及在线预览 |
 | **REQ-DEV-007** | 设备多维度综合检索 | `equipments` 复合索引 | `GET /api/v1/equipments` (Query) | 高级筛选栏 (类型/状态/位置组合) | 1000台设备规模下复合筛选，500ms 内返回数据 |
 | **REQ-DEV-008** | 设备维修履历时间线 | `inspection_records`, `fault_records` | `GET /api/v1/equipments/{id}/timeline` | 垂直时间线组件 (Timeline) | 点击设备电子履历，按时间倒序展示历次故障与解决 |
-| **REQ-DEV-009** | 设备台账Excel导入导出 | Excel 解析/导出服务 | `POST /api/v1/equipments/import` | 批量导入向导、数据预览表格 | 上传包含200台设备Excel，校验并批量落库 |
-| **REQ-MNT-001** | 维护计划与SOP编制 | `maintenance_plans` | `POST /api/v1/maintenance/plans` | 维护计划富文本编辑器 | 工程师编制含图文SOP的月度保养计划 |
-| **REQ-MNT-002** | 结构化检查清单建模 | `maintenance_plan_items` | `maintenance_plan_items` CRUD | 动态清单项列表、标准对照图浮窗 | 技术员在移动端展开查看每项检查的标准配图 |
+| **REQ-DEV-009** | 设备信息Excel导入导出 | Excel 解析/导出服务 | `POST /api/v1/equipments/import` | 批量导入向导、数据预览表格 | 上传包含200台设备Excel，校验并批量落库 |
+| **REQ-MNT-001** | 设备维护计划与维护内容编制 | `maintenance_plans` | `POST /api/v1/maintenance/plans` | 维护计划富文本编辑器 (最小单位：小时) | 工程师编制含设备维护内容的周期计划，支持小时级设定 |
+| **REQ-MNT-002** | 设备维护内容结构化清单建模 | `maintenance_plan_items` | `maintenance_plan_items` CRUD | 动态维护内容列表、标准对照图浮窗 | 技术员在移动端展开查看每项设备维护内容的标准配图 |
 | **REQ-MNT-003** | 维护计划版本迭代快照 | `maintenance_tasks.plan_version_snapshot` | 计划修改触发版本自增 | 历史任务详情页版本标签 | 修改计划至V1.1，查看历史记录仍显示当时V1.0 |
-| **REQ-MNT-004** | 维护周期动态倒计时推算 | `maintenance_tasks.due_date` | 每日零点调度扫描器 | 仪表盘剩余天数进度条 | 提交巡检后，设备下次维护时间自动顺延一个周期 |
-| **REQ-MNT-005** | 多节点到期邮件提醒配置 | `maintenance_notify_configs` | 邮件调度引擎 | 系统设置“通知策略”多标签表单 | 配置提前7/3/1天通知，到达节点自动投递邮件 |
-| **REQ-MNT-006** | 维护任务自动触发派发 | `maintenance_tasks` | 调度生成任务服务 | 技术员工作台待办列表 | 到期当天零点设备变待维护，待办列表出现任务 |
-| **REQ-MNT-007** | 现场巡检打卡证据留存 | `inspection_record_details` | `POST /api/v1/maintenance/inspections/submit` | 工控平板打卡界面 (正常/异常单选) | 选择异常项未上传照片直接提交，前端校验拦截 |
-| **REQ-MNT-008** | 巡检异常联锁派发故障单 | `fault_records` (单事务联锁) | 同上 (单一聚合接口原子事务) | 提交成功后提示新生成的故障单号 | 提交异常项，验证故障单自动生成且设备变故障 |
-| **REQ-MNT-009** | 维护超时判定与持续告警 | `maintenance_tasks.is_overdue` | 逾期扫描定时任务 | 仪表盘红色高亮超时待办徽章 | 逾期3天任务高亮变红，每日向主管发送催办邮件 |
+| **REQ-MNT-004** | 维护周期动态倒计时推算 (小时级) | `maintenance_tasks.due_time` | 后台小时级/日级调度扫描器 | 数据平台剩余小时/天数进度条 | 提交现场维护单后，设备下次维护时间精确顺延一个周期 |
+| **REQ-MNT-005** | 多节点到期邮件提醒配置 | `maintenance_notify_configs` | 邮件调度引擎 | 系统设置“通知策略”多标签表单 | 配置提前72/24小时通知，到达节点自动投递邮件 |
+| **REQ-MNT-006** | 维护任务自动触发派发 | `maintenance_tasks` | 调度生成任务服务 | 技术员工作台待办列表 | 到期时刻设备变待维护，待办列表出现现场维护单 |
+| **REQ-MNT-007** | 现场维护单与工作完成证据留存 | `inspection_records`, `maintenance_tasks` | `POST /api/v1/maintenance/inspections/submit` | 工控平板现场维护单 (正常/异常单选+证据上传) | 技术员接单后可编辑工单信息并上传图片作为工作完成证据 |
+| **REQ-MNT-008** | 维护异常联锁派发故障单 | `fault_records` (单事务联锁) | 同上 (单一聚合接口原子事务) | 提交成功后提示新生成的故障单号 | 提交异常项，验证故障单自动生成且设备变故障 |
+| **REQ-MNT-009** | 维护超时判定与持续告警 | `maintenance_tasks.is_overdue` | 逾期扫描定时任务 | 仪表盘红色高亮超时待办徽章 | 逾期任务高亮变红，持续投递催办邮件 |
 | **REQ-MNT-010** | 维护按时完成率多维统计 | 聚合统计视图 | `GET /api/v1/maintenance/statistics/completion-rate` | ECharts 完成率对比柱状图 | 按设备类型和工程师统计当月完成率百分比 |
-| **REQ-MNT-011** | 维护历史记录查询导出 | `inspection_records` | `GET /api/v1/maintenance/inspections/export` | 历史记录表格与导出按钮 | 导出包含各项检查明细的 Excel 报表 |
-| **REQ-FLT-001** | 故障双渠道申报来源 | `fault_records.source_type` | `POST /api/v1/faults` | 报修来源标签 (巡检派生 / 主动报修) | 分别测试巡检异常自动派生与主动新建报修 |
+| **REQ-MNT-011** | 现场维护历史记录查询导出 | `inspection_records` | `GET /api/v1/maintenance/inspections/export` | 历史记录表格与导出按钮 | 导出包含各项维护内容判定明细的 Excel 报表 |
+| **REQ-FLT-001** | 故障双渠道申报来源 | `fault_records.source_type` | `POST /api/v1/faults` | 报修来源标签 (维护派生 / 主动报修) | 分别测试现场维护单异常派生与主动新建报修 |
 | **REQ-FLT-002** | 故障核心要素规范化录入 | `fault_records` | 同上 | 故障填报表单 (必填字段校验) | 漏选故障系统或未传照片时提示错误 |
 | **REQ-FLT-003** | 录入故障实时智能排查推荐 | 混合推荐引擎 + Redis | `POST /api/v1/faults/recommend-similar` | 输入框右侧抽屉滑动推荐卡片 | 键入“风机异响”，300ms 后展示相似案例 Top-3 |
 | **REQ-FLT-004** | 故障生命周期状态机流转 | `fault_records.status` | 状态跃迁专用接口 | 故障看板 (Kanban) 拖拽流转面板 | 待处理 -> 处理中 -> 已解决 -> 归档关闭流转 |
@@ -822,11 +827,11 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 | **REQ-TRN-003** | 培训实施与现场过程记录 | `training_records` | `POST /api/v1/training/records` | 培训签到打卡表、现场照片墙 | 录入讲师、实训地点并上传现场照片留痕 |
 | **REQ-TRN-004** | 考核评估与复训触发机制 | `training_user_scores` | `POST /api/v1/training/scores` | 成绩录入表格、待复训警示标签 | 录入不及格成绩，学员状态自动变“待复训” |
 | **REQ-TRN-005** | 员工全生命周期技能档案 | 档案聚合服务 | `GET /api/v1/training/profile/{userId}` | 员工技术档案卡 (课时/合格率/典型贡献) | 调阅技术员档案，完整查看历次培训与技能履历 |
-| **REQ-DSH-001** | 核心资产健康度统计卡片 | Redis 缓存预聚合查询 | `GET /api/v1/dashboard/metrics` | 首页顶部统计卡片 (正常/故障/待维护) | 模拟新增故障设备，大盘卡片数字实时更新 |
-| **REQ-DSH-002** | 角色差异化智能待办工作台 | 角色路由待办聚合服务 | `GET /api/v1/dashboard/my-todo` | 待办列表组件 (按紧急程度排序) | 技术员展示巡检待办，工程师展示故障维修待办 |
+| **REQ-DSH-001** | 数据平台核心资产健康度统计卡片 | Redis 缓存预聚合查询 | `GET /api/v1/dashboard/metrics` | FCM设备运维管理平台顶部卡片 | 模拟新增故障设备，大盘卡片数字实时更新 |
+| **REQ-DSH-002** | 角色差异化智能待办工作台 | 角色路由待办聚合服务 | `GET /api/v1/dashboard/my-todo` | 待办列表组件 (按紧急程度排序) | 技术员展示现场维护单待办，工程师展示维修待办 |
 | **REQ-DSH-003** | 故障趋势与维保分析图表 | ECharts 聚合接口 | `GET /api/v1/dashboard/charts` | 折线图 (故障趋势) 与饼图 (系统分布) | 切换近30天与近90天，动态渲染图表 |
 | **REQ-SYS-001** | SMTP 邮件服务集成与自检 | `sys_smtp_configs` | `GET/POST /api/v1/system/smtp/config`, `POST /api/v1/system/smtp/test` | 邮件服务器可视化配置表单与“测试发信”按钮 | 页面配置 SMTP 参数保存落库并点击测试，收件箱5秒内收到邮件；密码强制脱敏 |
-| **REQ-SYS-002** | 通知对象与工作组配置 | 邮件通知路由表 | 系统设置“通知分组”界面 | 班组人员多选器 | 配置电气组邮箱，故障上报时仅电气组收信 |
+| **REQ-SYS-002** | 通知对象与工作组配置 | 邮件通知路由表 | 系统设置“通知分组”界面 | 班组人员多选器 | 配置通知邮箱，故障上报时目标组收信 |
 | **REQ-SYS-003** | 全生命周期邮件触发引擎 | 异步邮件调度队列 | 事件发布总线 | 邮件模板引擎 (HTML格式化工单) | 触发维护到期与故障升级，验证邮件格式与时效 |
 | **REQ-SYS-004** | Excel批量导入导出底座 | 通用 Excel 流式处理器 | 通用导入导出端点 | 导入对话框 (带下载模板与校验日志) | 导入不合规范的数据，单元格错误提示精确展示 |
 | **REQ-SYS-005** | 180天不可篡改审计日志 | `sys_audit_logs` (只读权限) | `GET /api/v1/system/audit-logs` | 审计日志搜索表格、Diff 数据对比弹窗 | 管理员修改参数，审计日志记录并展示前后 Diff |
@@ -834,8 +839,8 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 | **REQ-NFR-001** | 安全防护与防暴力破解 | Redis 计数器 + bcrypt | 网关限流与安全过滤器 | 登录防护机制 | 模拟注入攻击与密码爆破，系统稳定拦截 |
 | **REQ-NFR-002** | 系统响应性能指标 | 数据库索引 + 缓存优化 | 核心业务 API | 首屏性能监控 (Performance API) | 首页加载 $<3$ 秒，推荐接口响应 $<500$ ms |
 | **REQ-NFR-003** | 系统容量支撑指标 | PostgreSQL B-Tree + 分区 | 容量压力测试用例 | 1000台设备与10000条故障数据压测 | 在设计容量上限下，查询与操作无卡顿 |
-| **REQ-NFR-004** | 可靠性与数据一致性 | 单事务联锁 + 逻辑软删除 | 业务事务管理器 | 数据库外键保护 | 软删除设备，历史巡检与故障记录关联完好无损 |
-| **REQ-NFR-005** | 工业现场浏览器与平板适配 | 响应式布局 + 触控热区 | Web 前端界面 | 工控平板触控测试 (1280x800) | 在车间平板上单手操作打卡与拍照无遮挡 |
+| **REQ-NFR-004** | 可靠性与数据一致性 | 单事务联锁 + 逻辑软删除 | 业务事务管理器 | 数据库外键保护 | 软删除设备，历史维护单与故障记录关联完好无损 |
+| **REQ-NFR-005** | 工业现场浏览器与平板适配 | 响应式布局 + 触控热区 | Web 前端界面 | 工控平板触控测试 (1280x800) | 在车间平板上单手操作维护单与拍照无遮挡 |
 
 ---
 *(本文档为 MaintainWise 工厂自动化设备维护管理系统的权威设计规格规范)*

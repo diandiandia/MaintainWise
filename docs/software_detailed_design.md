@@ -32,14 +32,14 @@
 │   │   ├── api/                    # 控制器/路由层 (Routers)
 │   │   │   ├── v1/
 │   │   │   │   ├── auth.py         # 认证、登录、改密、Token刷新
-│   │   │   │   ├── users.py        # 用户管理 CRUD
-│   │   │   │   ├── locations.py    # 5级位置树 API
-│   │   │   │   ├── equipments.py   # 设备台账、参数、履历与导入导出
-│   │   │   │   ├── maintenance.py  # 维护计划、任务、巡检原子打卡提交
+│   │   │   │   ├── users.py        # 用户管理 CRUD (不设车间主管，免责任工种隔离)
+│   │   │   │   ├── locations.py    # 4级层级拓扑树 API (工厂/部门/系统/设备)
+│   │   │   │   ├── equipments.py   # 设备信息、参数、履历与导入导出
+│   │   │   │   ├── maintenance.py  # 设备维护计划(最小单位小时)、工单接单编辑与图片凭证、现场维护单提交
 │   │   │   │   ├── faults.py       # 故障报修、接单乐观锁、复盘关闭
 │   │   │   │   ├── knowledge.py    # 知识库全文检索、智能推荐打分
 │   │   │   │   ├── training.py     # 培训课程、挂接案例、实训考核
-│   │   │   │   ├── dashboard.py    # 仪表盘统计卡片、角色工作台待办
+│   │   │   │   ├── dashboard.py    # FCM设备运维管理平台(数据平台)卡片、角色工作台待办
 │   │   │   │   └── system.py       # SMTP测试、通知配置、审计日志
 │   │   │   └── deps.py             # 依赖注入 (get_db, get_current_user, require_role)
 │   │   ├── core/                   # 核心基础设施
@@ -59,17 +59,17 @@
 │   │   │   └── training.py         # Course, CourseCase, TrainingRecord, UserScore
 │   │   ├── schemas/                # Pydantic 强类型请求/响应 DTO
 │   │   │   ├── equipment_params.py # 11类设备专有参数强校验 Schema
-│   │   │   ├── inspection.py       # 巡检原子打卡 Payload Schema
+│   │   │   ├── inspection.py       # 现场维护单原子提交与证据 Payload Schema
 │   │   │   ├── fault.py            # 故障录入与复盘 Schema
 │   │   │   └── common.py           # 分页响应包与标准结果返回封包
 │   │   ├── services/               # 领域业务服务层
 │   │   │   ├── state_machine.py    # 设备与故障有限状态机服务
-│   │   │   ├── inspection_tx.py    # 巡检异常联锁单事务提单服务
+│   │   │   ├── inspection_tx.py    # 现场维护异常联锁单事务提单服务
 │   │   │   ├── fault_claim.py      # 故障接单乐观并发控制服务
 │   │   │   ├── recommend_engine.py # 双阶段故障智能推荐打分引擎
 │   │   │   └── excel_processor.py  # 流式 Excel 导入导出解析器
 │   │   └── tasks/                  # 异步守护与定时调度任务 (APScheduler / Celery)
-│   │       ├── maintenance_cron.py # 维护倒计时游标分块扫描与派单
+│   │       ├── maintenance_cron.py # 维护倒计时小时级游标分块扫描与派单
 │   │       ├── email_dispatcher.py # 邮件防重调度投递
 │   │       ├── sla_monitor.py      # SLA 超时监控轮询
 │   │       └── file_cleaner.py     # 24小时未关联孤儿文件清理任务
@@ -82,7 +82,7 @@
 │   │   ├── directives/             # 权限控制指令 (v-permission 按钮与DOM节点物理移除)
 │   │   ├── router/                 # Vue Router 路由定义与强制改密/RBAC守卫 (Route Guard)
 │   │   ├── stores/                 # Pinia 状态管理 (Auth, Todo, Equipment, Inspection)
-│   │   ├── views/                  # 业务页面 (大盘、巡检打卡、设备台账、故障复盘、用户管理、系统配置)
+│   │   ├── views/                  # 业务页面 (数据平台FCM、现场维护单、设备信息、故障复盘、用户管理、系统配置)
 │   │   └── styles/                 # 工业触控适配 CSS (48px 触控热区)
 │   ├── Dockerfile
 │   └── package.json
@@ -112,15 +112,16 @@
 | **10004** | 401 | `TOKEN_EXPIRED` | 登录会话已超过 30 分钟无操作，请重新登录 |
 | **10005** | 400 | `INVALID_CREDENTIALS` | 用户名或密码错误 |
 | **10008** | 403 | `FORCE_PASSWORD_CHANGE_REQUIRED` | 首次登录或密码过期，必须修改初始密码方可继续使用 |
-| **20001** | 400 | `CANNOT_DELETE_NODE_WITH_CHILDREN` | 目标位置节点存在子节点或下挂设备，禁止物理删除 |
+| **20001** | 400 | `CANNOT_DELETE_NODE_WITH_CHILDREN` | 目标位置节点存在子节点或下挂设备信息，禁止删除 |
 | **20002** | 400 | `EQUIPMENT_CODE_DUPLICATE` | 设备编码已存在，请更换唯一编码 |
 | **20003** | 400 | `CYCLIC_HIERARCHY_DETECTED` | 拓扑位置修改失败：检测到循环依赖成环路径 |
-| **20004** | 400 | `MAX_DEPTH_EXCEEDED` | 位置层级深度超出限制，系统最高仅支持 5 级 |
+| **20004** | 400 | `MAX_DEPTH_EXCEEDED` | 位置层级深度超出限制，系统固定支持 3 级（工厂/部门/系统）并在系统下挂载设备信息 |
 | **20005** | 400 | `INVALID_STATUS_TRANSITION` | 设备生命周期状态跃迁非法（如报废设备不可恢复为正常） |
 | **20006** | 400 | `EQUIPMENT_PARAM_INVALID` | 设备专有参数校验不合法（如 IP 格式错误或风量为负数） |
-| **30001** | 400 | `INSPECTION_ITEM_MISSING` | 巡检打卡失败：存在未评定的检查清单项 |
-| **30002** | 400 | `INSPECTION_ANOMALY_PHOTO_REQUIRED` | 检查项判定为异常时，必须强制上传现场照片证据 |
-| **30003** | 400 | `PLAN_VERSION_CONFLICT` | 维护计划版本冲突，当前计划正在被其他管理员修改 |
+| **30001** | 400 | `INSPECTION_ITEM_MISSING` | 现场维护单提交失败：存在未评定的设备维护内容项 |
+| **30002** | 400 | `INSPECTION_ANOMALY_PHOTO_REQUIRED` | 设备维护内容判定为异常时，必须强制上传现场照片证据 |
+| **30003** | 400 | `PLAN_VERSION_CONFLICT` | 维护计划版本冲突，当前计划正在被其他工程师修改 |
+| **30004** | 400 | `WORK_PROOF_REQUIRED` | 技术员提交现场维护单必须上传现场工作完成证据图片 |
 | **40001** | 404 | `FAULT_NOT_FOUND` | 目标故障工单不存在或已被软删除 |
 | **40002** | 400 | `INVALID_FAULT_STATE_TRANSITION` | 故障状态流转非法 |
 | **40003** | 409 | `FAULT_ALREADY_CLAIMED` | **并发接单冲突**：该故障工单已被其他工程师抢先认领 |
@@ -606,10 +607,11 @@ export function setupRouterGuard(router: Router) {
 }
 ```
 
-### 6.2 工控平板巡检打卡交互组件设计
+#### 6.2 工控平板现场维护单交互组件设计
 针对车间现场震动、戴手套操作及工控平板分辨率（$1280 \times 800$）进行特定 CSS 与交互设计：
 * **单手触控优化**：按钮垂直点击热区高度 $\ge 48\text{px}$，间距 $\ge 16\text{px}$。
 * **单选卡片样式**：绿色大号“正常”按钮与高警示红“异常”按钮采用分屏大色块，杜绝误触。
+* **工单编辑与工作完成证据上传**：技术员接单后，在表单中直接开放工单处理说明编辑输入框，并配置多图上传组件用于留存工作完成现场证据。
 * **即拍即传浮窗**：点击异常项后，界面自动平滑锚点滑动至必填照片上传区域，带相机图标指引。
 
 ### 6.3 SMTP 邮件服务器可视化配置与动态生效机制 (SWR-SYS-001)
@@ -627,7 +629,7 @@ export function setupRouterGuard(router: Router) {
 
 1. **侧边栏导航菜单收敛 (`Layout.vue`)**：
    - 管理员专用模块（“用户与班组管理”、“系统设置与审计”）在侧边栏模板中绑定 `v-if="authStore.isAdmin"`。
-   - 非管理员角色（`SUPERVISOR`、`ENGINEER`、`TECHNICIAN`）登录后，侧边栏完全不渲染受限菜单入口，防止越权误导。
+   - 非管理员角色（`ENGINEER`、`TECHNICIAN`）登录后，侧边栏完全不渲染受限菜单入口（系统精简内置三大角色，不设车间主管）。
 
 2. **全局自定义权限指令 (`directives/permission.ts`)**：
    - 前端全局注册 `v-permission` 自定义指令，在元素挂载生命周期检测当前登录用户角色：
@@ -649,9 +651,10 @@ export function setupRouterGuard(router: Router) {
    };
    ```
 
-3. **视图核心受控按钮绑定清单**：
-   - 设备台账视图 (`EquipmentListView.vue`)：“录入设备”、“导出Excel”、表格行“删除”绑定 `v-permission="['ADMIN', 'ENGINEER']"`。
-   - 维护计划视图 (`MaintenancePlanView.vue`)：“编制新维护计划”、表格行“升级版本快照”绑定 `v-permission="['ADMIN', 'ENGINEER']"`。
+3. **视图核心受控按钮绑定与技术员权限开放**：
+   - 设备信息视图 (`EquipmentListView.vue`)：“录入设备信息”、“导出Excel”、表格行“删除”绑定 `v-permission="['ADMIN', 'ENGINEER']"`。
+   - 设备维护计划视图 (`MaintenancePlanView.vue`)：“编制新维护计划”（最小单位小时）、表格行“升级版本快照”绑定 `v-permission="['ADMIN', 'ENGINEER']"`。
+   - 现场维护单视图 (`InspectionView.vue`)：技术员接单后开放“编辑工单信息”输入框与“上传工作完成证据图片”组件。
    - 技能实训视图 (`TrainingView.vue`)：“编制实操新课程”绑定 `v-permission="['ADMIN', 'ENGINEER']"`。
    - 故障流转看板 (`FaultKanbanView.vue`)：“并发抢单认领”、“维修复盘提交”、“验收归档关闭”绑定 `v-permission="['ADMIN', 'ENGINEER']"`。
    - 知识库视图 (`KnowledgeView.vue`)：“录入知识条目”绑定 `v-permission="['ADMIN', 'ENGINEER']"`。
@@ -665,34 +668,34 @@ export function setupRouterGuard(router: Router) {
 
 | 软件需求编号 | 需求名称 | 详细设计模块 (Module & Class) | 核心实现代码/类文件路径 | 单元测试用例编号 |
 |:---|:---|:---|:---|:---|
-| **SWR-USR-001** | 角色权限控制与无权限直接关闭 | `deps.require_role`, `v-permission` | `backend/app/api/deps.py`, `frontend/src/directives/permission.ts` | `TEST-USR-001` |
-| **SWR-USR-002** | 工作类型数据过滤 | `apply_work_type_scope` 过滤器 | `backend/app/repositories/base.py` | `TEST-USR-002` |
-| **SWR-USR-003** | 账号全生命周期与软禁用/软删除 | `UserService`, `UsersRouter` (全量CRUD与软删除) | `backend/app/api/v1/users.py`, `frontend/src/views/UserManagementView.vue` | `TEST-USR-003` |
+| **SWR-USR-001** | 三大角色权限控制与无权限直接关闭 | `deps.require_role`, `v-permission` | `backend/app/api/deps.py`, `frontend/src/directives/permission.ts` | `TEST-USR-001` |
+| **SWR-USR-002** | 全局设备协同与免工种数据隔离 | 全局协同查询路由 | `backend/app/api/v1/equipments.py` | `TEST-USR-002` |
+| **SWR-USR-003** | 账号全生命周期与软禁用/软删除 | `UserService`, `UsersRouter` (不设车间主管与工种隔离) | `backend/app/api/v1/users.py`, `frontend/src/views/UserManagementView.vue` | `TEST-USR-003` |
 | **SWR-USR-004** | 强制改密双重阻断 | `JWT Auth Middleware`, `Router Guard` | `backend/app/core/security.py` | `TEST-USR-004` |
 | **SWR-USR-005** | 邮箱重置一次性Token | `Redis Token Service` | `backend/app/core/redis.py` | `TEST-USR-005` |
 | **SWR-USR-006** | 防暴破锁定与8小时生产会话 | `LoginAttemptLimiter` + 480分钟单班次Token | `backend/app/core/security.py`, `backend/app/core/config.py` | `TEST-USR-006` |
 | **SWR-USR-007** | 全局操作人审计自动注入 | `AuditModelListener` | `backend/app/models/base.py` | `TEST-USR-007` |
 | **SWR-USR-008** | 操作级细粒度权限校验 | `ActionPermissionChecker` | `backend/app/api/deps.py` | `TEST-USR-008` |
-| **SWR-DEV-001** | 5级位置树防成环算法 | `LocationTreeService.validate_path` | `backend/app/services/location.py` | `TEST-DEV-001` |
+| **SWR-DEV-001** | 4级层级拓扑树 (工厂/部门/系统/设备) | `LocationTreeService.validate_path` | `backend/app/services/location.py` | `TEST-DEV-001` |
 | **SWR-DEV-002** | 层级防孤儿删除校验 | `LocationRepository.delete` | `backend/app/repositories/location.py` | `TEST-DEV-002` |
-| **SWR-DEV-003** | 设备台账录入校验 | `EquipmentCreateSchema` | `backend/app/schemas/equipment.py` | `TEST-DEV-003` |
+| **SWR-DEV-003** | 设备信息录入校验 (免工种绑定) | `EquipmentCreateSchema` | `backend/app/schemas/equipment.py` | `TEST-DEV-003` |
 | **SWR-DEV-004** | 11类设备专有强校验 | `PLCEquipmentParamSchema` 等 | `backend/app/schemas/equipment_params.py` | `TEST-DEV-004` |
 | **SWR-DEV-005** | 设备状态机流转引擎 | `EquipmentStateMachine` | `backend/app/services/state_machine.py` | `TEST-DEV-005` |
-| **SWR-DEV-006** | 附件解耦与孤儿标记 | `EquipmentFile.is_linked` | `backend/app/services/file.py` | `TEST-DEV-006` |
+| **SWR-DEV-006** | 附件解耦与工作证据标记 | `EquipmentFile.is_linked` | `backend/app/services/file.py` | `TEST-DEV-006` |
 | **SWR-DEV-007** | 设备多维组合过滤 | `EquipmentFilterSpecification` | `backend/app/repositories/equipment.py` | `TEST-DEV-007` |
 | **SWR-DEV-008** | 电子履历时间线聚合 | `TimelineAggregatorService` | `backend/app/services/equipment.py` | `TEST-DEV-008` |
 | **SWR-DEV-009** | Excel流式导入与预览 | `ExcelStreamProcessor` | `backend/app/services/excel_processor.py`| `TEST-DEV-009` |
-| **SWR-MNT-001** | 维护计划编制与SOP | `MaintenancePlanService` | `backend/app/services/maintenance.py` | `TEST-MNT-001` |
-| **SWR-MNT-002** | 巡检清单标准配图比对 | `ChecklistRendererComponent` | `frontend/src/components/Checklist.vue` | `TEST-MNT-002` |
+| **SWR-MNT-001** | 设备维护计划与维护内容编制 | `MaintenancePlanService` (最小单位小时) | `backend/app/services/maintenance.py` | `TEST-MNT-001` |
+| **SWR-MNT-002** | 设备维护内容与标准配图比对 | `ChecklistRendererComponent` | `frontend/src/components/Checklist.vue` | `TEST-MNT-002` |
 | **SWR-MNT-003** | 维护计划版本快照固化 | `MaintenancePlanService.bump_version` | `backend/app/services/maintenance.py` | `TEST-MNT-003` |
-| **SWR-MNT-004** | 动态倒计时分块游标批处理 | `maintenance_countdown_worker` | `backend/app/tasks/maintenance_cron.py`| `TEST-MNT-004` |
+| **SWR-MNT-004** | 动态倒计时分块游标批处理 (小时级) | `maintenance_countdown_worker` | `backend/app/tasks/maintenance_cron.py`| `TEST-MNT-004` |
 | **SWR-MNT-005** | 维护邮件防重幂等校验 | `EmailDispatcher.send_maintenance_notice` | `backend/app/tasks/email_dispatcher.py` | `TEST-MNT-005` |
-| **SWR-MNT-006** | 到期维护任务自动派单 | `maintenance_task_trigger` | `backend/app/tasks/maintenance_cron.py`| `TEST-MNT-006` |
-| **SWR-MNT-007** | 车间平板现场打卡视图 | `InspectionTouchView` | `frontend/src/views/Inspection.vue` | `TEST-MNT-007` |
-| **SWR-MNT-008** | 巡检异常单事务联锁提单 | `InspectionAtomicService.submit_inspection` | `backend/app/services/inspection_tx.py` | `TEST-MNT-008` |
-| **SWR-MNT-009** | 维护超时每日催办轮询 | `maintenance_overdue_checker` | `backend/app/tasks/maintenance_cron.py`| `TEST-MNT-009` |
+| **SWR-MNT-006** | 到期现场维护单自动派单 | `maintenance_task_trigger` | `backend/app/tasks/maintenance_cron.py`| `TEST-MNT-006` |
+| **SWR-MNT-007** | 现场维护单、工单编辑与证据上传 | `InspectionTouchView`, `TaskEditProofDialog` | `frontend/src/views/Inspection.vue` | `TEST-MNT-007` |
+| **SWR-MNT-008** | 维护异常单事务联锁提单 | `InspectionAtomicService.submit_inspection` | `backend/app/services/inspection_tx.py` | `TEST-MNT-008` |
+| **SWR-MNT-009** | 维护超时持续催办轮询 | `maintenance_overdue_checker` | `backend/app/tasks/maintenance_cron.py`| `TEST-MNT-009` |
 | **SWR-MNT-010** | 维护完成率聚合与ECharts | `CompletionRateAggregator` | `backend/app/services/statistics.py` | `TEST-MNT-010` |
-| **SWR-MNT-011** | 巡检明细全量报表导出 | `InspectionExportService` | `backend/app/services/excel_processor.py`| `TEST-MNT-011` |
+| **SWR-MNT-011** | 现场维护明细报表导出 | `InspectionExportService` | `backend/app/services/excel_processor.py`| `TEST-MNT-011` |
 | **SWR-FLT-001** | 故障双来源适配接入 | `FaultIngestionService` | `backend/app/services/fault.py` | `TEST-FLT-001` |
 | **SWR-FLT-002** | 故障要素录入与照片强制 | `FaultCreateSchema` | `backend/app/schemas/fault.py` | `TEST-FLT-002` |
 | **SWR-FLT-003** | 实时智能排查防抖推荐 | `RecommendationEngine` + Redis | `backend/app/services/recommend_engine.py` | `TEST-FLT-003` |
@@ -713,7 +716,7 @@ export function setupRouterGuard(router: Router) {
 | **SWR-TRN-003** | 培训实施签到与现场影像 | `TrainingRecordService` | `backend/app/services/training.py` | `TEST-TRN-003` |
 | **SWR-TRN-004** | 考核打分与复训状态触发 | `UserScoreEvaluator` | `backend/app/services/training.py` | `TEST-TRN-004` |
 | **SWR-TRN-005** | 员工终身技能电子档案卡 | `UserProfileAggregator` | `backend/app/services/training.py` | `TEST-TRN-005` |
-| **SWR-DSH-001** | 资产健康大盘实时卡片 | `DashboardMetricService` | `backend/app/services/dashboard.py` | `TEST-DSH-001` |
+| **SWR-DSH-001** | FCM设备运维管理平台(数据平台)卡片 | `DashboardMetricService` | `backend/app/services/dashboard.py` | `TEST-DSH-001` |
 | **SWR-DSH-002** | 角色差异化待办推送 | `UserTodoRouterService` | `backend/app/services/dashboard.py` | `TEST-DSH-002` |
 | **SWR-DSH-003** | 故障趋势与完成率图表 | `DashboardChartService` | `backend/app/services/dashboard.py` | `TEST-DSH-003` |
 | **SWR-DSH-004** | 全局高频快捷动作入口 | `QuickActionFabComponent` | `frontend/src/components/QuickAction.vue`| `TEST-DSH-004` |
