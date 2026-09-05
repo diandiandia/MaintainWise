@@ -375,6 +375,85 @@ class RecommendationEngine:
         return top_3
 ```
 
+### 3.4 非连续运转设备每日运行工时计量与预测性预警引擎 (`EquipmentMeterService`)
+落实系统需求 `SWR-MNT-012` 与 `REQ-MNT-012`：针对非 24x7 连续运转设备，以实际开机小时数作为维保触发基准，实现精准计量、临界预警、防重邮件触发与维保派单协同。
+
+#### 1. 业务痛点与架构决策
+工业现场存在大量非连续运转机台（如冲压机、注塑辅机、实验机台），若仅采用自然日历倒计时（如720小时=30天），将在设备未达到真实磨损周期时产生虚假维保；若不设管理则易出现超期运转磨损。因此系统引入**设备工时计量引擎（EquipmentMeterService）**：
+- **操作员端**：在工控平板“现场维护单 / 设备运行工时填报”视图每日快捷打卡录入开机工时（支持 +4h/+8h/+12h 快速预设，单日累计上限 24.0 小时校验）。
+- **后台服务层**：利用行级悲观锁与原子累加保证并发写入一致性，并固化历史填报流水日志（`equipment_operating_logs`）。
+- **预警与派单引擎**：实时计算 `current_operating_hours` 与 `interval_hours - advance_warning_hours` 的阈值关系。一旦达到临界预警（例如 720h 周期提前 48h，即 672h），系统启动防重邮件调度，自动向维护主管与责任工程师投递提醒，并生成状态为 `PENDING` 的现场维护工单。
+- **闭环清零重置**：当技术人员完成该机台维护单打卡（`InspectionAtomicService` 判定全项合格归档）时，单事务内自动将 `equipment.current_operating_hours` 归零，启动下一轮维保周期。
+
+```python
+# backend/app/services/equipment_meter.py
+from datetime import date, datetime
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from app.models.equipment import Equipment, EquipmentOperatingLog
+from app.models.maintenance import MaintenancePlan, MaintenanceTask
+from app.schemas.equipment import EquipmentOperatingLogCreateRequest
+from app.core.exceptions import BusinessException
+
+class EquipmentMeterService:
+    @classmethod
+    def record_operating_hours(cls, db: Session, user, req: EquipmentOperatingLogCreateRequest) -> dict:
+        log_date = req.log_date or date.today()
+        # 1. 悲观行级锁查询设备
+        equipment = db.query(Equipment).filter(Equipment.id == req.equipment_id, Equipment.is_deleted == False).with_for_update().first()
+        if not equipment:
+            raise BusinessException(code=20005, message="设备不存在或已被软删除")
+
+        # 2. 校验单日累计工时不得超过 24.0 小时
+        day_logged = db.query(func.coalesce(func.sum(EquipmentOperatingLog.duration_hours), 0.0)).filter(
+            EquipmentOperatingLog.equipment_id == req.equipment_id,
+            EquipmentOperatingLog.log_date == log_date
+        ).scalar()
+        if float(day_logged) + req.duration_hours > 24.0:
+            raise BusinessException(code=30006, message=f"单日累计运行工时不能超过 24.0 小时 (当日已填报 {float(day_logged):.1f}h)")
+
+        # 3. 原子累加设备当前运行工时
+        equipment.current_operating_hours = round(float(equipment.current_operating_hours or 0.0) + req.duration_hours, 2)
+
+        # 4. 插入工时填报流水记录
+        log_entry = EquipmentOperatingLog(
+            equipment_id=equipment.id,
+            log_date=log_date,
+            duration_hours=req.duration_hours,
+            cumulative_hours=equipment.current_operating_hours,
+            proof_image_id=req.proof_image_id,
+            operator_id=user.id,
+            operator_name=user.full_name or user.username,
+            remarks=req.remarks
+        )
+        db.add(log_entry)
+
+        # 5. 维保工时预警与自动派单判断
+        plan = db.query(MaintenancePlan).filter(
+            MaintenancePlan.equipment_id == equipment.id,
+            MaintenancePlan.trigger_mode == "OPERATING_HOURS",
+            MaintenancePlan.is_active == True,
+            MaintenancePlan.is_deleted == False
+        ).first()
+
+        interval_hours = plan.interval_hours if plan else (equipment.maintenance_interval_hours or 720)
+        advance_warning_hours = plan.advance_warning_hours if plan else 48
+        warning_threshold = max(0, interval_hours - advance_warning_hours)
+
+        triggered_maintenance = False
+        if equipment.current_operating_hours >= warning_threshold:
+            triggered_maintenance = True
+            # 防重触发邮件提醒与自动生成现场维护工单
+            cls._trigger_warning_notice_and_task(db, equipment, plan, interval_hours)
+
+        db.commit()
+        return {
+            "equipment_id": equipment.id,
+            "current_operating_hours": equipment.current_operating_hours,
+            "triggered_maintenance": triggered_maintenance
+        }
+```
+
 ---
 
 ## 4. 强类型 Pydantic Schema 校验建模 (11类设备专有模型)
@@ -701,6 +780,7 @@ export function setupRouterGuard(router: Router) {
 | **SWR-MNT-009** | 维护超时持续催办轮询 | `maintenance_overdue_checker` | `backend/app/tasks/maintenance_cron.py`| `TEST-MNT-009` |
 | **SWR-MNT-010** | 维护完成率聚合与ECharts | `CompletionRateAggregator` | `backend/app/services/statistics.py` | `TEST-MNT-010` |
 | **SWR-MNT-011** | 现场维护明细报表导出 | `InspectionExportService` | `backend/app/services/excel_processor.py`| `TEST-MNT-011` |
+| **SWR-MNT-012** | 非连续运转设备工时累计与预警引擎 | `EquipmentMeterService` + `InspectionTouchView` | `backend/app/services/equipment_meter.py`, `frontend/src/views/InspectionTouchView.vue` | `TEST-MNT-012` |
 | **SWR-FLT-001** | 故障双来源适配接入 | `FaultIngestionService` | `backend/app/services/fault.py` | `TEST-FLT-001` |
 | **SWR-FLT-002** | 故障要素录入与照片强制 | `FaultCreateSchema` | `backend/app/schemas/fault.py` | `TEST-FLT-002` |
 | **SWR-FLT-003** | 实时智能排查防抖推荐 | `RecommendationEngine` + Redis | `backend/app/services/recommend_engine.py` | `TEST-FLT-003` |

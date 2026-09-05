@@ -244,6 +244,20 @@
                 <span>{{ row.maintenance_interval_hours || (row.maintenance_interval_days * 24) }} 小时</span>
               </template>
             </el-table-column>
+            <el-table-column label="累计运行工时" width="140">
+              <template #default="{ row }">
+                <div class="op-hours-cell">
+                  <span style="font-weight: 600;">{{ row.current_operating_hours || 0 }}h</span>
+                  <el-tag
+                    size="small"
+                    :type="row.current_operating_hours >= (row.maintenance_interval_hours || row.maintenance_interval_days * 24) ? 'danger' : ((row.maintenance_interval_hours || row.maintenance_interval_days * 24) - (row.current_operating_hours || 0) <= 48 ? 'warning' : 'success')"
+                    style="margin-left: 6px;"
+                  >
+                    {{ Math.round(((row.current_operating_hours || 0) / (row.maintenance_interval_hours || (row.maintenance_interval_days * 24) || 720)) * 100) }}%
+                  </el-tag>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column prop="rated_voltage" label="额定电压" width="90" />
             <el-table-column label="专有参数" width="100">
               <template #default="{ row }">
@@ -259,8 +273,16 @@
                 <span v-else style="color: #909399; font-size: 12px;">无</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="160" fixed="right">
+            <el-table-column label="操作" width="210" fixed="right">
               <template #default="{ row }">
+                <el-button
+                  type="success"
+                  link
+                  size="small"
+                  @click="openOperatingHoursDialog(row)"
+                >
+                  填工时
+                </el-button>
                 <el-button
                   type="primary"
                   link
@@ -509,6 +531,59 @@
           {{ val }}
         </el-descriptions-item>
       </el-descriptions>
+    </el-dialog>
+
+    <!-- 设备运行工时填报弹窗 (SWR-MNT-012) -->
+    <el-dialog
+      v-model="opHoursDialogVisible"
+      :title="`机台 [${currentOpHoursRow?.equipment_code}] 运行工时填报`"
+      width="500px"
+      append-to-body
+    >
+      <div v-if="currentOpHoursRow" class="op-dialog-summary">
+        <div><strong>设备名称：</strong>{{ currentOpHoursRow.equipment_name }}</div>
+        <div style="margin-top: 6px;">
+          <strong>当前累计工时：</strong>
+          <span style="color: #409eff; font-weight: 700;">{{ currentOpHoursRow.current_operating_hours || 0 }}</span> / {{ currentOpHoursRow.maintenance_interval_hours || (currentOpHoursRow.maintenance_interval_days * 24) }} 小时
+        </div>
+      </div>
+
+      <el-form label-position="top" style="margin-top: 14px;">
+        <el-form-item label="工时发生日期" required>
+          <el-date-picker
+            v-model="opHoursForm.log_date"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="选择日期"
+            style="width: 100%;"
+          />
+        </el-form-item>
+        <el-form-item label="当日开机运行工时 (小时)" required>
+          <el-input-number
+            v-model="opHoursForm.duration_hours"
+            :min="0.5"
+            :max="24.0"
+            :step="0.5"
+            :precision="1"
+            style="width: 100%;"
+          />
+        </el-form-item>
+        <el-form-item label="生产说明 / 备注">
+          <el-input
+            v-model="opHoursForm.remarks"
+            type="textarea"
+            :rows="2"
+            placeholder="如: 白班运转、间歇性试机等..."
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="opHoursDialogVisible = false">取 消</el-button>
+        <el-button type="primary" :loading="submittingOpHours" @click="submitEquipmentOperatingHours">
+          确认录入
+        </el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -1003,6 +1078,61 @@ const handleDelete = async (row: any) => {
   }
 };
 
+const opHoursDialogVisible = ref(false);
+const submittingOpHours = ref(false);
+const currentOpHoursRow = ref<any>(null);
+const opHoursForm = reactive({
+  log_date: new Date().toISOString().split('T')[0],
+  duration_hours: 8.0,
+  remarks: '',
+});
+
+const openOperatingHoursDialog = (row: any) => {
+  currentOpHoursRow.value = row;
+  opHoursForm.log_date = new Date().toISOString().split('T')[0];
+  opHoursForm.duration_hours = 8.0;
+  opHoursForm.remarks = '';
+  opHoursDialogVisible.value = true;
+};
+
+const submitEquipmentOperatingHours = async () => {
+  if (!currentOpHoursRow.value) return;
+  if (!opHoursForm.duration_hours || opHoursForm.duration_hours <= 0 || opHoursForm.duration_hours > 24) {
+    ElMessage.warning('当日运行工时需在 0.1 至 24.0 小时之间');
+    return;
+  }
+  submittingOpHours.value = true;
+  try {
+    const payload = {
+      equipment_id: currentOpHoursRow.value.id,
+      log_date: opHoursForm.log_date,
+      duration_hours: opHoursForm.duration_hours,
+      remarks: opHoursForm.remarks,
+    };
+    const res = await apiClient.post<any, any>(
+      `/equipments/${currentOpHoursRow.value.id}/operating-hours`,
+      payload
+    );
+    if (res.code === 200) {
+      if (res.data?.triggered_maintenance) {
+        await ElMessageBox.alert(
+          `工时记录成功！机台累计运行工时达到 ${res.data.current_operating_hours}h，已达到预警/维护阈值并触发维保工单派发及邮件通知！`,
+          '维保工时预警提示',
+          { type: 'warning' }
+        );
+      } else {
+        ElMessage.success(`工时录入成功，当前累计运行工时: ${res.data.current_operating_hours} 小时`);
+      }
+      opHoursDialogVisible.value = false;
+      fetchEquipments();
+    }
+  } catch (err) {
+    console.error(err);
+  } finally {
+    submittingOpHours.value = false;
+  }
+};
+
 const exportExcel = () => {
   window.open('/api/v1/equipments/export/excel', '_blank');
 };
@@ -1288,5 +1418,18 @@ onMounted(() => {
 .timeline-content .operator {
   font-size: 12px;
   color: #94a3b8;
+}
+
+.op-hours-cell {
+  display: flex;
+  align-items: center;
+}
+
+.op-dialog-summary {
+  background: #f8fafc;
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  font-size: 14px;
 }
 </style>

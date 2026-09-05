@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS equipments (
     next_maintenance_date DATE,
     responsible_engineer_id BIGINT REFERENCES sys_users(id),
     status VARCHAR(32) NOT NULL DEFAULT 'RUNNING', -- RUNNING, MAINTENANCE_PENDING, FAULTY, SHUTDOWN, SCRAPPED
+    current_operating_hours NUMERIC(10, 2) NOT NULL DEFAULT 0.0, -- 当前维保周期已累计运行工时
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     created_by BIGINT REFERENCES sys_users(id),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -132,14 +133,30 @@ CREATE TABLE IF NOT EXISTS equipment_files (
 CREATE INDEX IF NOT EXISTS idx_files_eq_tag ON equipment_files(equipment_id, file_tag);
 CREATE INDEX IF NOT EXISTS idx_files_is_linked ON equipment_files(is_linked);
 
+-- 7.1 设备运行工时填报与流水表 (equipment_operating_logs) (SWR-MNT-012)
+CREATE TABLE IF NOT EXISTS equipment_operating_logs (
+    id BIGSERIAL PRIMARY KEY,
+    equipment_id BIGINT NOT NULL REFERENCES equipments(id) ON DELETE CASCADE,
+    log_date DATE NOT NULL,
+    duration_hours NUMERIC(10, 2) NOT NULL,
+    cumulative_hours NUMERIC(10, 2) NOT NULL,
+    proof_image_id BIGINT REFERENCES equipment_files(id),
+    operator_id BIGINT NOT NULL REFERENCES sys_users(id),
+    remarks VARCHAR(255),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_op_logs_eq_date ON equipment_operating_logs(equipment_id, log_date);
+
 -- 8. 维护计划与 SOP 表 (maintenance_plans)
 CREATE TABLE IF NOT EXISTS maintenance_plans (
     id BIGSERIAL PRIMARY KEY,
     plan_code VARCHAR(64) NOT NULL UNIQUE,
     plan_name VARCHAR(128) NOT NULL,
     plan_type VARCHAR(32) NOT NULL, -- DAILY, WEEKLY, MONTHLY, ANNUAL, HOURLY
+    trigger_mode VARCHAR(32) NOT NULL DEFAULT 'CALENDAR', -- CALENDAR (日历天) / OPERATING_HOURS (工时制)
     interval_days INT NOT NULL DEFAULT 30,
     interval_hours INT NOT NULL DEFAULT 720, -- 倒计时周期最小为小时
+    advance_warning_hours INT NOT NULL DEFAULT 48, -- 提前预警小时数 (默认提前48小时通知)
     version_no VARCHAR(16) NOT NULL DEFAULT 'V1.0',
     sop_content TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,

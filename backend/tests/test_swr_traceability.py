@@ -5,13 +5,13 @@ from sqlalchemy.orm import Session
 from pydantic import ValidationError
 
 from app.models.user import User, AuditLog
-from app.models.equipment import Equipment, Location, EquipmentParam, EquipmentFile
+from app.models.equipment import Equipment, Location, EquipmentParam, EquipmentFile, EquipmentOperatingLog
 from app.models.maintenance import MaintenancePlan, MaintenancePlanItem, MaintenanceTask, InspectionRecord, MaintenanceNotifyLog
 from app.models.fault import FaultRecord
 from app.models.knowledge import KnowledgeArticle
 from app.models.training import TrainingCourse, TrainingCourseCase, TrainingRecord, TrainingUserScore
 
-from app.schemas.equipment import EquipmentCreateRequest
+from app.schemas.equipment import EquipmentCreateRequest, EquipmentOperatingLogCreateRequest
 from app.schemas.equipment_params import (
     PLCEquipmentParamSchema,
     FanEquipmentParamSchema,
@@ -25,6 +25,7 @@ from app.services.fault_claim import FaultClaimService
 from app.services.inspection_tx import InspectionAtomicService
 from app.services.recommend_engine import RecommendationEngine
 from app.services.excel_processor import ExcelProcessor
+from app.services.equipment_meter import EquipmentMeterService
 
 from app.tasks.maintenance_cron import run_daily_maintenance_countdown_job
 from app.tasks.sla_monitor import run_sla_monitor_job
@@ -346,6 +347,103 @@ def test_mnt_011_inspection_export_excel():
     data = ExcelProcessor.export_to_excel(["任务编号", "巡检人", "是否异常"], [["TSK-01", "张工", "否"]], sheet_name="巡检明细")
     assert len(data) > 0
     assert data[:2] == b"PK"
+
+def test_mnt_012_equipment_meter_and_warning(db_session: Session):
+    """TEST-MNT-012: 非连续运转设备每日运行工时计量、临界预警与自动派单 (SWR-MNT-012)"""
+    # 1. 准备测试设备与操作员
+    user = db_session.query(User).filter(User.username == "admin").first()
+    loc = db_session.query(Location).filter(Location.is_leaf == True).first()
+    eq = Equipment(
+        equipment_code="EQ-METER-TEST-01",
+        equipment_name="非连续冲压机",
+        equipment_type="PLC",
+        work_type="GENERAL",
+        location_id=loc.id,
+        model_spec="METER-720H",
+        maintenance_interval_hours=720,
+        maintenance_interval_days=30,
+        current_operating_hours=0.0,
+        status="RUNNING"
+    )
+    db_session.add(eq)
+    db_session.commit()
+
+    # 2. 绑定工时触发维保计划 (周期 720h, 提前 48h 预警, 阈值 672h)
+    plan = MaintenancePlan(
+        plan_code="PLAN-METER-01",
+        plan_name="冲压机720小时大修计划",
+        plan_type="OPERATING_HOURS",
+        trigger_mode="OPERATING_HOURS",
+        interval_hours=720,
+        interval_days=30,
+        advance_warning_hours=48,
+        equipment_ids=[eq.id],
+        sop_content="冲压机大修SOP流程规范",
+        is_active=True,
+        created_by=user.id
+    )
+    db_session.add(plan)
+    db_session.commit()
+
+    # 3. 正常填报工时 (8.0h)
+    req1 = EquipmentOperatingLogCreateRequest(
+        equipment_id=eq.id,
+        log_date=datetime.date.today(),
+        duration_hours=8.0,
+        remarks="第一日白班运转"
+    )
+    res1 = EquipmentMeterService.record_operating_hours(db_session, user, req1)
+    assert res1["current_operating_hours"] == 8.0
+    assert res1["triggered_maintenance"] is False
+
+    # 4. 校验单日累计工时不得超过 24.0 小时限制 (8.0 + 17.0 = 25.0 > 24)
+    req_excess = EquipmentOperatingLogCreateRequest(
+        equipment_id=eq.id,
+        log_date=datetime.date.today(),
+        duration_hours=17.0,
+        remarks="超负荷运转测试"
+    )
+    with pytest.raises(BusinessException) as exc_info:
+        EquipmentMeterService.record_operating_hours(db_session, user, req_excess)
+    assert exc_info.value.code == 20007
+
+    # 5. 模拟工时累加至达到提前预警阈值 672h (差664h)
+    req2 = EquipmentOperatingLogCreateRequest(
+        equipment_id=eq.id,
+        log_date=datetime.date.today() - datetime.timedelta(days=1),
+        duration_hours=20.0,
+        remarks="昨日满负荷运转"
+    )
+    EquipmentMeterService.record_operating_hours(db_session, user, req2)
+    # 直接修改累计工时逼近预警线 (670h)
+    eq.current_operating_hours = 670.0
+    db_session.commit()
+
+    # 填报 3.0h -> 累计达到 673h >= 672h (触发预警与派单)
+    req3 = EquipmentOperatingLogCreateRequest(
+        equipment_id=eq.id,
+        log_date=datetime.date.today() - datetime.timedelta(days=2),
+        duration_hours=3.0,
+        remarks="累计突破预警工时"
+    )
+    res3 = EquipmentMeterService.record_operating_hours(db_session, user, req3)
+    assert res3["current_operating_hours"] == 673.0
+    assert res3["triggered_maintenance"] is True
+
+    # 验证是否自动派发了 MaintenanceTask
+    task = db_session.query(MaintenanceTask).filter(MaintenanceTask.equipment_id == eq.id).first()
+    assert task is not None
+    assert task.status == "PENDING"
+
+    # 6. 查询概要
+    summary = EquipmentMeterService.get_operating_summary(db_session, eq.id)
+    assert summary["current_operating_hours"] == 673.0
+    assert summary["is_warning"] is True
+    assert summary["remaining_hours"] == 47.0
+
+    # 7. 验证查询历史日志
+    logs = EquipmentMeterService.get_operating_logs(db_session, eq.id)
+    assert len(logs) >= 3
 
 # ==============================================================================
 # 4. FLT 模块单元测试 (TEST-FLT-001 ~ TEST-FLT-009)

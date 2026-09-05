@@ -6,11 +6,19 @@ from app.models.user import User
 from app.models.equipment import Equipment, EquipmentParam, Location
 from app.models.maintenance import InspectionRecord
 from app.models.fault import FaultRecord
-from app.schemas.equipment import EquipmentCreateRequest, EquipmentUpdateRequest, EquipmentResponse, EquipmentTimelineItem
+from app.schemas.equipment import (
+    EquipmentCreateRequest,
+    EquipmentUpdateRequest,
+    EquipmentResponse,
+    EquipmentTimelineItem,
+    EquipmentOperatingLogCreateRequest,
+    EquipmentOperatingSummary
+)
 from app.schemas.common import BaseResponse, PageResult
 from app.repositories.base import apply_work_type_scope
 from app.services.state_machine import EquipmentStateMachine
 from app.services.excel_processor import ExcelProcessor
+from app.services.equipment_meter import EquipmentMeterService
 from app.core.exceptions import BusinessException
 from app.api.deps import get_current_user, require_role, check_fcp_status
 
@@ -273,3 +281,64 @@ def delete_equipment(
     eq.is_deleted = True
     db.commit()
     return BaseResponse(message="设备已安全软删除")
+
+# =========================================================================
+# 设备每日运行工时填报与预测性维保引擎 API (SWR-MNT-012)
+# =========================================================================
+
+@router.post("/{eq_id}/operating-hours", response_model=BaseResponse)
+def record_equipment_operating_hours(
+    eq_id: int,
+    req: EquipmentOperatingLogCreateRequest,
+    current_user: User = Depends(get_current_user),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    """
+    现场操作员/技术员每日填报机台实际运行工时 (SWR-MNT-012):
+    - 校验单日累计工时不得超过 24.0 小时
+    - 原子递增累计工时并落库流水
+    - 达到提前预警阈值 (如 720h - 48h = 672h) 时触发防重邮件与工单派发
+    """
+    req.equipment_id = eq_id
+    result = EquipmentMeterService.record_operating_hours(db, current_user, req)
+    return BaseResponse(data=result, message=result.get("message", "工时填报成功"))
+
+@router.get("/{eq_id}/operating-summary", response_model=BaseResponse[EquipmentOperatingSummary])
+def get_equipment_operating_summary(
+    eq_id: int,
+    current_user: User = Depends(get_current_user),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    """查询单台设备当前维保周期的累计工时、进度比例、预警状态"""
+    summary = EquipmentMeterService.get_operating_summary(db, eq_id)
+    return BaseResponse(data=summary)
+
+@router.get("/{eq_id}/operating-logs", response_model=BaseResponse[List[dict]])
+def get_equipment_operating_logs(
+    eq_id: int,
+    limit: int = 30,
+    current_user: User = Depends(get_current_user),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    """查询设备的每日运行工时填报历史流水"""
+    logs = EquipmentMeterService.get_operating_logs(db, eq_id, limit)
+    return BaseResponse(data=logs)
+
+@router.get("/operating-overview/all", response_model=BaseResponse[List[EquipmentOperatingSummary]])
+def get_all_operating_overview(
+    current_user: User = Depends(get_current_user),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    """批量查询所有活跃设备的工时进度汇总列表（供现场工时打卡及监控展示）"""
+    equipments = db.query(Equipment).filter(Equipment.is_deleted == False).order_by(Equipment.id).all()
+    summaries = []
+    for eq in equipments:
+        try:
+            summaries.append(EquipmentMeterService.get_operating_summary(db, eq.id))
+        except Exception:
+            continue
+    return BaseResponse(data=summaries)

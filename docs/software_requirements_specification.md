@@ -182,6 +182,23 @@ $$\text{SWR} - [\text{软件模块代码}] - [\text{三位序号}]$$
 #### SWR-MNT-011: 现场维护单明细全量报表 Excel 导出
 * **功能描述**：支持将选定时间区间内的现场维护单明细（包含逐项检查结果、技术员工作记录与证据图片链接）导出为标准 Excel 报表。
 
+#### SWR-MNT-012: 实际运行工时驱动的预测性维保与动态倒计时通知 (Meter-Based Maintenance)
+* **功能描述**：实现基于机台实际运行工时累加（非固定 7×24 小时自然日历）的预测性维保与预警引擎。支持现场操作员每日/每班次填报机台运行小时数，系统在满足预警阈值时自动发送邮件通知并派发维护工单，维护完成后自动重置工时计数器。
+* **软件输入**：
+  * **维护计划配置**：`trigger_mode: ['CALENDAR' | 'OPERATING_HOURS']`，`interval_hours`（目标维保周期，如 720h），`advance_warning_hours`（提前预警小时数，如 48h）。
+  * **每日工时填报**：`equipment_id`、`log_date`、`duration_hours`（浮点数，步进 0.5h，单日上限 24.0h）、`proof_image_id`（可选仪表照片凭据）、`remarks`。
+* **业务逻辑与实现规则**：
+  1. **防作弊与单日工时守恒校验**：后端强校验同一设备在同一自然日累计填报时长不得超过 24.0 小时，且每次填报必须大于 0。
+  2. **工时原子累加与快照记录**：每次填报在独立本地事务中执行原子累加 `equipment.current_operating_hours += duration_hours`，并向 `equipment_operating_logs` 表插入快照流水。
+  3. **预警线判定与邮件通知**：计算剩余运行工时 `remaining_hours = interval_hours - current_operating_hours`：
+     * 若 `remaining_hours <= advance_warning_hours` 且本周期未发送过预警邮件，系统调用 SMTP 服务向设备责任工程师及班组推送预警邮件，并生成 `PENDING` 维护工单。
+     * 若 `remaining_hours <= 0`，设备运行状态自动跃迁为 `MAINTENANCE_PENDING`。
+  4. **完工闭环与计数重置**：技术员在【现场维护单】打卡完成该工单并提交工作证据后，系统自动将设备的 `current_operating_hours` 清零重置，开启下一个工时维保周期。
+* **验收标准**：
+  * 操作员在【现场维护单-运行工时填报】中 3 秒内完成打卡，进度条实时更新；
+  * 到达 672 小时（距 720h 差 48h）时，成功发送预警邮件并自动生成待办工单；
+  * 维保完成打卡后，累计工时计数自动归零，下一个 720 小时周期重新开始。
+
 ---
 
 ### 2.4 故障时效与闭环流转子系统 (SWR-FLT)

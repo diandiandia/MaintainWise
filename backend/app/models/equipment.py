@@ -34,6 +34,7 @@ class Equipment(BaseAuditModel):
     next_maintenance_date = Column(Date, nullable=True, index=True)
     responsible_engineer_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("sys_users.id"), nullable=True)
     status = Column(String(32), default="RUNNING", nullable=False, index=True) # RUNNING, MAINTENANCE_PENDING, FAULTY, SHUTDOWN, SCRAPPED
+    current_operating_hours = Column(Numeric(10, 2), default=0.0, nullable=False) # 当前维保周期已累计运行工时
 
 class EquipmentParam(Base):
     __tablename__ = "equipment_params"
@@ -68,3 +69,17 @@ class EquipmentFile(Base):
     is_linked = Column(Boolean, default=False, nullable=False, index=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     created_by = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("sys_users.id"), nullable=True)
+
+class EquipmentOperatingLog(Base):
+    """设备运行工时每日填报与累计流水表 (SWR-MNT-012)"""
+    __tablename__ = "equipment_operating_logs"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    equipment_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("equipments.id", ondelete="CASCADE"), nullable=False, index=True)
+    log_date = Column(Date, nullable=False, index=True)
+    duration_hours = Column(Numeric(10, 2), nullable=False) # 当日运行小时数 (<= 24.0)
+    cumulative_hours = Column(Numeric(10, 2), nullable=False) # 填报完成后累计工时快照
+    proof_image_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("equipment_files.id"), nullable=True)
+    operator_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("sys_users.id"), nullable=False, index=True)
+    remarks = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)

@@ -24,14 +24,26 @@
                 <el-tag size="small" type="warning">v{{ row.version }}.0</el-tag>
               </template>
             </el-table-column>
+            <el-table-column prop="trigger_mode" label="触发机制" width="130">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.trigger_mode === 'OPERATING_HOURS' ? 'warning' : 'primary'">
+                  {{ row.trigger_mode === 'OPERATING_HOURS' ? '⏱️ 设备工时' : '📅 日历周期' }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="interval_hours" label="维护周期" width="120">
               <template #default="{ row }">
                 {{ row.interval_hours }} 小时（{{ (row.interval_hours / 24).toFixed(1) }}天）
               </template>
             </el-table-column>
-            <el-table-column prop="advance_notice_days" label="提前预警" width="100">
+            <el-table-column label="提前预警" width="110">
               <template #default="{ row }">
-                {{ row.advance_notice_days }} 天
+                <span v-if="row.trigger_mode === 'OPERATING_HOURS'">
+                  {{ row.advance_warning_hours || 48 }} 小时
+                </span>
+                <span v-else>
+                  {{ row.advance_notice_days }} 天
+                </span>
               </template>
             </el-table-column>
             <el-table-column prop="is_active" label="状态" width="90">
@@ -141,19 +153,35 @@
         </el-row>
 
         <el-row :gutter="16">
+          <el-col :span="24">
+            <el-form-item label="维保触发机制 (SWR-MNT-012)" required>
+              <el-radio-group v-model="planForm.trigger_mode">
+                <el-radio-button value="CALENDAR">📅 日历周期 (24x7连续运行，自然倒计时)</el-radio-button>
+                <el-radio-button value="OPERATING_HOURS">⏱️ 累计运行工时 (非24h连续机台，操作员每日填报)</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-row :gutter="16">
           <el-col :span="8">
-            <el-form-item label="维护周期（小时）" required>
+            <el-form-item :label="planForm.trigger_mode === 'OPERATING_HOURS' ? '维保目标工时 (小时)' : '维护周期（小时）'" required>
               <el-input-number v-model="planForm.interval_hours" :min="1" style="width: 100%;" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="8" v-if="planForm.trigger_mode === 'CALENDAR'">
             <el-form-item label="等效天数（参考）">
               <el-input :value="(planForm.interval_hours / 24).toFixed(1) + ' 天'" readonly style="width: 100%;" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="8" v-if="planForm.trigger_mode === 'CALENDAR'">
             <el-form-item label="提前预警天数">
               <el-input-number v-model="planForm.advance_notice_days" :min="1" style="width: 100%;" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="16" v-else>
+            <el-form-item label="提前预警工时阈值 (达到该工时邮件提醒/派单)" required>
+              <el-input-number v-model="planForm.advance_warning_hours" :min="1" :max="planForm.interval_hours" style="width: 100%;" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -205,8 +233,10 @@ const planForm = reactive({
   plan_name: '',
   equipment_ids: [] as number[],
   selectedEquipmentPaths: [] as any[],
+  trigger_mode: 'CALENDAR',
   interval_hours: 720,
   advance_notice_days: 3,
+  advance_warning_hours: 48,
   items: [
     { item_order: 1, check_item_name: '轴承润滑油位与油质', standard_benchmark: '油位处于油标1/2至2/3处，无乳化', is_required: true },
     { item_order: 2, check_item_name: '叶轮动平衡与紧固件', standard_benchmark: '锁紧螺母防松铁丝完好，叶片无积灰偏重', is_required: true },
@@ -344,8 +374,10 @@ const openPlanDialog = () => {
   planForm.plan_name = '';
   planForm.equipment_ids = [];
   planForm.selectedEquipmentPaths = [];
+  planForm.trigger_mode = 'CALENDAR';
   planForm.interval_hours = 720;
   planForm.advance_notice_days = 3;
+  planForm.advance_warning_hours = 48;
   planForm.items = [
     { item_order: 1, check_item_name: '轴承润滑油位与油质', standard_benchmark: '油位处于油标1/2至2/3处，无乳化', is_required: true },
     { item_order: 2, check_item_name: '叶轮动平衡与紧固件', standard_benchmark: '锁紧螺母防松铁丝完好，叶片无积灰偏重', is_required: true },
@@ -368,10 +400,12 @@ const submitPlan = async () => {
     const payload = {
       plan_name: planForm.plan_name,
       plan_code: 'PLAN-' + Date.now(),
-      plan_type: 'MONTHLY',
+      plan_type: planForm.trigger_mode === 'OPERATING_HOURS' ? 'OPERATING_HOURS' : 'MONTHLY',
+      trigger_mode: planForm.trigger_mode,
       interval_hours: planForm.interval_hours,
       interval_days: Math.ceil(planForm.interval_hours / 24),
       advance_notice_days: planForm.advance_notice_days,
+      advance_warning_hours: planForm.advance_warning_hours,
       sop_content: planForm.plan_name + ' 标准维护流程',
       equipment_ids: planForm.equipment_ids,
       items: planForm.items.map((it, idx) => ({

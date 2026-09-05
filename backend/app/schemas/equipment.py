@@ -68,6 +68,7 @@ class EquipmentResponse(BaseModel):
     next_maintenance_date: Optional[date] = None
     responsible_engineer_id: Optional[int] = None
     status: str
+    current_operating_hours: Optional[float] = 0.0
     created_at: datetime
     params: Optional[Dict[str, Any]] = None
     location_path: Optional[str] = None
@@ -82,3 +83,38 @@ class EquipmentTimelineItem(BaseModel):
     description: str
     operator_name: Optional[str] = None
     downtime_minutes: Optional[int] = 0
+
+class EquipmentOperatingLogCreateRequest(BaseModel):
+    equipment_id: Optional[int] = None
+    log_date: Optional[date] = None # 默认为当天
+    duration_hours: float = Field(..., gt=0, le=24.0, description="当日运行小时数 (0 < x <= 24)")
+    proof_image_id: Optional[int] = None
+    remarks: Optional[str] = None
+
+class EquipmentOperatingLogResponse(BaseModel):
+    id: int
+    equipment_id: int
+    log_date: date
+    duration_hours: float
+    cumulative_hours: float
+    proof_image_id: Optional[int] = None
+    operator_id: int
+    operator_name: Optional[str] = None
+    remarks: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class EquipmentOperatingSummary(BaseModel):
+    equipment_id: int
+    equipment_code: str
+    equipment_name: str
+    current_operating_hours: float
+    interval_hours: int
+    advance_warning_hours: int
+    remaining_hours: float
+    progress_percentage: float
+    is_warning: bool
+    is_due: bool
+    status: str
+    last_log_date: Optional[date] = None

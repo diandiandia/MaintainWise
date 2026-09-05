@@ -100,6 +100,8 @@ class InspectionAtomicService:
             equipment.next_maintenance_date = (
                 datetime.date.today() + datetime.timedelta(days=equipment.maintenance_interval_days)
             )
+            # 维保完成，重置当前运行工时计数，进入下一轮工时周期
+            equipment.current_operating_hours = 0.0
 
         # 5. 更新任务状态及工单完成记录
         if task_id:

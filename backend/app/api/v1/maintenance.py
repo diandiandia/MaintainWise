@@ -61,8 +61,10 @@ def create_plan(
         plan_code=req.plan_code,
         plan_name=req.plan_name,
         plan_type=req.plan_type,
+        trigger_mode=req.trigger_mode or "CALENDAR",
         interval_days=interval_days,
         interval_hours=interval_hours,
+        advance_warning_hours=req.advance_warning_hours or 48,
         version_no="V1.0",
         sop_content=req.sop_content,
         equipment_ids=req.equipment_ids or [],
@@ -113,8 +115,10 @@ def update_plan(
     plan.plan_code = req.plan_code
     plan.plan_name = req.plan_name
     plan.plan_type = req.plan_type
+    plan.trigger_mode = req.trigger_mode or "CALENDAR"
     plan.interval_days = interval_days
     plan.interval_hours = interval_hours
+    plan.advance_warning_hours = req.advance_warning_hours or 48
     plan.version_no = new_version
     plan.sop_content = req.sop_content
     plan.equipment_ids = req.equipment_ids or []
