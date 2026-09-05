@@ -318,7 +318,7 @@ const fetchTasks = async () => {
 
 const fetchCompletionRate = async () => {
   try {
-    const res = await apiClient.get<any, any>('/maintenance/completion-rate');
+    const res = await apiClient.get<any, any>('/maintenance/statistics/completion-rate');
     if (res.code === 200 && res.data) {
       completionRates.value = res.data;
     }

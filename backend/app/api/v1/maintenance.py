@@ -225,6 +225,7 @@ def submit_inspection(
         message=result["message"]
     )
 
+@router.get("/completion-rate", response_model=BaseResponse[List[CompletionRateItem]])
 @router.get("/statistics/completion-rate", response_model=BaseResponse[List[CompletionRateItem]])
 def get_completion_rate(
     current_user: User = Depends(get_current_user),

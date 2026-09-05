@@ -8,11 +8,30 @@
             <div class="card-header">
               <span class="header-title">车间层级拓扑</span>
               <div class="header-tools">
-                <el-button v-if="authStore.isAdmin" size="small" type="primary" @click="openAddLocation(1)">+ 新建工厂</el-button>
+                <el-dropdown v-if="authStore.isAdmin" trigger="click" @command="(cmd: string) => openAddLocation(Number(cmd))">
+                  <el-button size="small" type="primary">
+                    + 新建拓扑节点 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="1">🏭 新建工厂 (Level 1)</el-dropdown-item>
+                      <el-dropdown-item command="2">🏢 新建部门 (Level 2)</el-dropdown-item>
+                      <el-dropdown-item command="3">⚙️ 新建系统 (Level 3)</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
                 <el-button size="small" link :icon="Refresh" @click="fetchLocationTree" />
               </div>
             </div>
           </template>
+
+          <!-- 顶部快捷操作栏 (管理员可直接录入工厂/部门/系统/设备) -->
+          <div v-if="authStore.isAdmin" class="quick-add-bar">
+            <el-button size="small" type="primary" plain @click="openAddLocation(1)">+ 新建工厂</el-button>
+            <el-button size="small" type="success" plain @click="openAddLocation(2)">+ 新建部门</el-button>
+            <el-button size="small" type="warning" plain @click="openAddLocation(3)">+ 新建系统</el-button>
+            <el-button size="small" type="primary" @click="openCreateDialog">+ 录入设备</el-button>
+          </div>
 
           <!-- 层级结构图例 -->
           <div class="hierarchy-legend">
@@ -52,17 +71,17 @@
               </el-tag>
             </div>
             <div v-if="selectedNode.node_type !== 'EQUIPMENT'" class="node-action-btns">
-              <el-button v-if="authStore.isAdmin && selectedNode.level_depth === 1" size="small" type="success" @click="openAddLocation(2, selectedNode)">+ 新建部门</el-button>
-              <el-button v-if="authStore.isAdmin && selectedNode.level_depth === 2" size="small" type="warning" @click="openAddLocation(3, selectedNode)">+ 新建系统</el-button>
-              <el-button v-if="selectedNode.level_depth === 3" size="small" type="primary" @click="openCreateDialogWithLocation(selectedNode.id)">+ 录入设备</el-button>
-              <el-button v-if="authStore.isAdmin" size="small" type="danger" plain :icon="Delete" @click="handleDeleteLocation(selectedNode)">删除</el-button>
+              <el-button v-if="authStore.isAdmin && selectedNode.level_depth === 1" size="small" type="success" @click="openAddLocation(2, selectedNode)">+ 在此工厂下新建部门</el-button>
+              <el-button v-if="authStore.isAdmin && selectedNode.level_depth === 2" size="small" type="warning" @click="openAddLocation(3, selectedNode)">+ 在此部门下新建系统</el-button>
+              <el-button v-if="selectedNode.level_depth === 3" size="small" type="primary" @click="openCreateDialogWithLocation(selectedNode.id)">+ 在此系统下录入设备</el-button>
+              <el-button v-if="authStore.isAdmin" size="small" type="danger" plain :icon="Delete" @click="handleDeleteLocation(selectedNode)">删除节点</el-button>
             </div>
           </div>
 
           <!-- 未选中节点时的操作提示 -->
           <div v-else class="node-hint">
             <el-icon :size="14" color="#94a3b8"><InfoFilled /></el-icon>
-            <span>点击左侧树节点，可在此处快捷操作</span>
+            <span>点击树节点选中，或点击节点右侧按钮快速新增</span>
           </div>
 
           <el-tree
@@ -75,16 +94,23 @@
           >
             <template #default="{ data }">
               <span class="tree-node">
-                <el-icon :size="14" :color="getNodeColor(data)">
-                  <OfficeBuilding v-if="data.level_depth === 1" />
-                  <Folder v-else-if="data.level_depth === 2" />
-                  <Operation v-else-if="data.level_depth === 3" />
-                  <Cpu v-else />
-                </el-icon>
-                <span class="node-title">{{ data.location_name }}</span>
-                <el-tag size="small" :type="getNodeTagType(data)" effect="plain" class="level-tag">
-                  {{ getNodeLabel(data) }}
-                </el-tag>
+                <span class="tree-node-left">
+                  <el-icon :size="14" :color="getNodeColor(data)">
+                    <OfficeBuilding v-if="data.level_depth === 1" />
+                    <Folder v-else-if="data.level_depth === 2" />
+                    <Operation v-else-if="data.level_depth === 3" />
+                    <Cpu v-else />
+                  </el-icon>
+                  <span class="node-title" :title="data.location_name">{{ data.location_name }}</span>
+                  <el-tag size="small" :type="getNodeTagType(data)" effect="plain" class="level-tag">
+                    {{ getNodeLabel(data) }}
+                  </el-tag>
+                </span>
+                <span v-if="data.node_type !== 'EQUIPMENT'" class="tree-node-actions" @click.stop>
+                  <el-button v-if="authStore.isAdmin && data.level_depth === 1" size="small" type="success" link @click.stop="openAddLocation(2, data)">+部门</el-button>
+                  <el-button v-if="authStore.isAdmin && data.level_depth === 2" size="small" type="warning" link @click.stop="openAddLocation(3, data)">+系统</el-button>
+                  <el-button v-if="data.level_depth === 3" size="small" type="primary" link @click.stop="openCreateDialogWithLocation(data.id)">+设备</el-button>
+                </span>
               </span>
             </template>
           </el-tree>
@@ -263,18 +289,42 @@
     <el-dialog
       v-model="locDialogVisible"
       :title="locDialogTitle"
-      width="500px"
+      width="540px"
       append-to-body
     >
       <el-form ref="locFormRef" :model="locForm" :rules="locFormRules" label-position="top">
-        <el-form-item v-if="locForm.parent_id" label="父级拓扑节点">
-          <el-input :value="selectedNode?.location_name" disabled />
+        <el-form-item label="节点层级与类型" required>
+          <el-radio-group v-model="locForm.level_depth" @change="handleLevelDepthChange">
+            <el-radio-button :value="1">🏭 工厂 (L1)</el-radio-button>
+            <el-radio-button :value="2">🏢 部门 (L2)</el-radio-button>
+            <el-radio-button :value="3">⚙️ 系统 (L3)</el-radio-button>
+          </el-radio-group>
         </el-form-item>
-        <el-form-item label="层级与节点类型">
-          <el-tag size="large" :type="locForm.level_depth === 1 ? 'primary' : locForm.level_depth === 2 ? 'success' : 'warning'">
-            {{ locForm.level_depth === 1 ? '第 1 级: 工厂 (FACTORY)' : locForm.level_depth === 2 ? '第 2 级: 部门 (DEPARTMENT)' : '第 3 级: 系统 (SYSTEM)' }}
-          </el-tag>
+
+        <!-- 若是部门(L2)，选择所属工厂 -->
+        <el-form-item v-if="locForm.level_depth === 2" label="所属上级工厂 (必选)" prop="parent_id">
+          <el-select v-model="locForm.parent_id" placeholder="请选择所属工厂" style="width: 100%;">
+            <el-option
+              v-for="fac in factoryLocations"
+              :key="fac.id"
+              :label="`${fac.location_name} (${fac.location_code})`"
+              :value="fac.id"
+            />
+          </el-select>
         </el-form-item>
+
+        <!-- 若是系统(L3)，选择所属部门 -->
+        <el-form-item v-if="locForm.level_depth === 3" label="所属上级部门 (必选)" prop="parent_id">
+          <el-select v-model="locForm.parent_id" placeholder="请选择所属部门" style="width: 100%;">
+            <el-option
+              v-for="dep in departmentLocations"
+              :key="dep.id"
+              :label="dep.full_name"
+              :value="dep.id"
+            />
+          </el-select>
+        </el-form-item>
+
         <el-form-item label="节点名称" prop="location_name">
           <el-input v-model="locForm.location_name" :placeholder="locNamePlaceholder" />
         </el-form-item>
@@ -343,8 +393,20 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="所属系统节点ID (第3级，请先选中左侧系统节点)" prop="location_id">
-              <el-input-number v-model="form.location_id" :min="1" style="width: 100%;" placeholder="点击左侧系统节点自动填入" />
+            <el-form-item label="所属系统节点 (第3级系统)" prop="location_id">
+              <el-select
+                v-model="form.location_id"
+                placeholder="请选择所属系统节点"
+                filterable
+                style="width: 100%;"
+              >
+                <el-option
+                  v-for="sys in systemLocations"
+                  :key="sys.id"
+                  :label="sys.full_path"
+                  :value="sys.id"
+                />
+              </el-select>
             </el-form-item>
           </el-col>
         </el-row>
@@ -468,6 +530,7 @@ import {
   Delete,
   HomeFilled,
   InfoFilled,
+  ArrowDown,
 } from '@element-plus/icons-vue';
 
 const authStore = useAuthStore();
@@ -477,6 +540,57 @@ const equipments = ref<any[]>([]);
 const locationTree = ref<any[]>([]);
 const selectedNode = ref<any>(null);
 const treeProps = { children: 'children', label: 'location_name' };
+
+// 所有工厂节点 (Level 1)
+const factoryLocations = computed(() => {
+  return locationTree.value.filter((n: any) => n.level_depth === 1 && n.node_type !== 'EQUIPMENT');
+});
+
+// 所有部门节点 (Level 2)
+const departmentLocations = computed(() => {
+  const result: any[] = [];
+  for (const fac of locationTree.value) {
+    if (fac.level_depth === 1 && fac.children) {
+      for (const dep of fac.children) {
+        if (dep.level_depth === 2 && dep.node_type !== 'EQUIPMENT') {
+          result.push({
+            id: dep.id,
+            location_name: dep.location_name,
+            location_code: dep.location_code,
+            full_name: `${fac.location_name} > ${dep.location_name}`,
+            parent_id: fac.id,
+          });
+        }
+      }
+    }
+  }
+  return result;
+});
+
+// 所有系统节点 (Level 3 - 用于挂载设备)
+const systemLocations = computed(() => {
+  const result: any[] = [];
+  for (const fac of locationTree.value) {
+    if (fac.children) {
+      for (const dep of fac.children) {
+        if (dep.children) {
+          for (const sys of dep.children) {
+            if (sys.level_depth === 3 && sys.node_type !== 'EQUIPMENT') {
+              result.push({
+                id: sys.id,
+                location_name: sys.location_name,
+                location_code: sys.location_code,
+                full_path: `${fac.location_name} > ${dep.location_name} > ${sys.location_name}`,
+                parent_id: dep.id,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+  return result;
+});
 
 // 扁平化节点映射表：id -> node，用于面包屑路径解析和位置路径展示
 const locationMap = ref<Record<string, any>>({});
@@ -551,19 +665,52 @@ const locCodePlaceholder = computed(() => {
   return '如: LOC-SYS-02';
 });
 
-const locFormRules = {
+const locFormRules = computed(() => ({
   location_name: [{ required: true, message: '请输入节点名称', trigger: 'blur' }],
   location_code: [{ required: true, message: '请输入节点编码', trigger: 'blur' }],
-};
+  parent_id: locForm.level_depth > 1 ? [{ required: true, message: locForm.level_depth === 2 ? '请选择所属上级工厂' : '请选择所属上级部门', trigger: 'change' }] : [],
+}));
 
-const openAddLocation = (level: number, parent?: any) => {
+const openAddLocation = (level: number = 1, parent?: any) => {
   locForm.level_depth = level;
-  locForm.parent_id = parent ? parent.id : null;
   locForm.node_type = level === 1 ? 'FACTORY' : level === 2 ? 'DEPARTMENT' : 'SYSTEM';
   locForm.location_name = '';
   locForm.location_code = '';
   locForm.sort_order = 1;
+
+  if (parent) {
+    locForm.parent_id = parent.id;
+  } else if (level === 2) {
+    if (selectedNode.value?.level_depth === 1 && selectedNode.value.node_type !== 'EQUIPMENT') {
+      locForm.parent_id = selectedNode.value.id;
+    } else {
+      locForm.parent_id = factoryLocations.value[0]?.id || null;
+    }
+  } else if (level === 3) {
+    if (selectedNode.value?.level_depth === 2 && selectedNode.value.node_type !== 'EQUIPMENT') {
+      locForm.parent_id = selectedNode.value.id;
+    } else {
+      locForm.parent_id = departmentLocations.value[0]?.id || null;
+    }
+  } else {
+    locForm.parent_id = null;
+  }
+
+  locFormRef.value?.clearValidate();
   locDialogVisible.value = true;
+};
+
+const handleLevelDepthChange = (newLevel: number) => {
+  locForm.level_depth = newLevel;
+  locForm.node_type = newLevel === 1 ? 'FACTORY' : newLevel === 2 ? 'DEPARTMENT' : 'SYSTEM';
+  if (newLevel === 1) {
+    locForm.parent_id = null;
+  } else if (newLevel === 2) {
+    locForm.parent_id = factoryLocations.value[0]?.id || null;
+  } else if (newLevel === 3) {
+    locForm.parent_id = departmentLocations.value[0]?.id || null;
+  }
+  locFormRef.value?.clearValidate();
 };
 
 const submitAddLocation = async () => {
@@ -645,10 +792,10 @@ const fanParams = reactive({
 });
 
 const formRules = {
-  equipment_code: [{ required: true, message: '请输入编号', trigger: 'blur' }],
-  equipment_name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
-  equipment_type: [{ required: true, message: '请选择类型', trigger: 'change' }],
-  location_id: [{ required: true, message: '请先在左侧树中选中系统节点，再点击录入设备', trigger: 'change' }],
+  equipment_code: [{ required: true, message: '请输入设备编码', trigger: 'blur' }],
+  equipment_name: [{ required: true, message: '请输入设备名称', trigger: 'blur' }],
+  equipment_type: [{ required: true, message: '请选择设备类型', trigger: 'change' }],
+  location_id: [{ required: true, message: '请选择所属系统节点', trigger: 'change' }],
 };
 
 // 电子履历
@@ -781,7 +928,11 @@ const openCreateDialog = () => {
   form.equipment_type = 'FAN';
   form.work_type = 'MECHANICAL';
   form.model_spec = '';
-  form.location_id = null;
+  if (selectedNode.value?.level_depth === 3 && selectedNode.value.node_type !== 'EQUIPMENT') {
+    form.location_id = selectedNode.value.id;
+  } else {
+    form.location_id = systemLocations.value[0]?.id || null;
+  }
   form.maintenance_interval_hours = 720;
   form.rated_voltage = '380V';
   formRef.value?.resetFields();
@@ -975,17 +1126,58 @@ onMounted(() => {
   color: #94a3b8;
 }
 
+/* 快速新增栏 */
+.quick-add-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.quick-add-bar .el-button {
+  margin: 0;
+  flex: 1;
+  font-size: 11px;
+  padding: 5px 6px;
+}
+
 /* 树节点 */
 .tree-node {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  width: 100%;
+  padding-right: 6px;
   font-size: 13px;
   padding: 2px 0;
 }
 
+.tree-node-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.tree-node-actions {
+  display: none;
+}
+
+.tree-node:hover .tree-node-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tree-node-actions .el-button {
+  padding: 2px 4px;
+  font-size: 11px;
+  height: auto;
+}
+
 .node-title {
-  max-width: 140px;
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

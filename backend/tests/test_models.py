@@ -13,11 +13,11 @@ def test_admin_user_seeded(db_session):
 
 def test_location_tree_seeded(db_session):
     locs = db_session.query(Location).filter(Location.is_deleted == False).all()
-    assert len(locs) >= 4
-    leaf = db_session.query(Location).filter(Location.location_code == "LOC-STN-A1").first()
+    assert len(locs) >= 3
+    leaf = db_session.query(Location).filter(Location.location_code == "LOC-SYS-01").first()
     assert leaf is not None
     assert leaf.is_leaf is True
-    assert leaf.level_depth == 4
+    assert leaf.level_depth == 3
 
 def test_equipment_creation(db_session):
     loc = db_session.query(Location).filter(Location.is_leaf == True).first()

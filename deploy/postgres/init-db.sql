@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS maintenance_plans (
     version_no VARCHAR(16) NOT NULL DEFAULT 'V1.0',
     sop_content TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    equipment_ids JSONB NOT NULL DEFAULT '[]', -- 关联设备ID列表，支持多设备共用同一维护计划
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     created_by BIGINT REFERENCES sys_users(id),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
