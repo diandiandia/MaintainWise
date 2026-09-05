@@ -690,7 +690,8 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 * `POST /api/v1/auth/reset-password`：校验重置 Token 并提交新密码。
 * `GET /api/v1/users`：分页查询用户列表（仅管理员，支持工号/姓名/角色过滤）。
 * `POST /api/v1/users`：创建新用户（工号、角色、专业工作类型）。
-* `PUT /api/v1/users/{id}/status`：禁用/启用用户账户（禁止物理删除）。
+* `PUT /api/v1/users/{id}`：更新用户账号资料与启禁用状态（仅管理员）。
+* `DELETE /api/v1/users/{id}`：安全软删除用户账号（仅管理员，保留历史业务审计外键）。
 
 ### 5.2 设备台账与位置层级 (REQ-DEV-001 ~ 009)
 * `GET /api/v1/locations/tree`：获取 5 级位置分类树形拓扑结构。
@@ -701,6 +702,7 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 * `POST /api/v1/equipments`：新建设备台账（通用字段 + 专有动态参数）。
 * `PUT /api/v1/equipments/{id}`：更新设备台账信息。
 * `PUT /api/v1/equipments/{id}/status`：人工切换设备运行/停机状态。
+* `DELETE /api/v1/equipments/{id}`：安全软删除设备（仅管理员与工程师权限）。
 * `GET /api/v1/equipments/{id}/timeline`：获取设备全生命周期电子维修履历时间线。
 * `POST /api/v1/equipments/import`：Excel 批量导入设备台账（返回解析预览及校验清单）。
 * `GET /api/v1/equipments/export`：按筛选条件导出设备台账 Excel。
@@ -739,7 +741,7 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 ### 6.1 安全架构设计 (REQ-NFR-001, REQ-USR-006)
 1. **密码学存储**：用户口令使用带有随机 Salt 的 `bcrypt` 算法哈希加盐存储（Cost 因子 = 12）。
 2. **防暴破拦截中间件**：基于 Redis 记录 IP 和用户名失败计数。连续 5 次失败，触发 15 分钟锁定期。
-3. **会话与 Token 超时**：Access Token 有效期 30 分钟，客户端连续 30 分钟无 API 请求触发静默登出。
+3. **生产单班次会话与 Token 超时**：Access Token 有效期设定为 480 分钟（8小时），全面覆盖车间 8 小时单班次免重复登录；前端监听无键鼠事件连续 30 分钟触发安全登出。
 4. **防越权数据隔离切面**：
    ```python
    # 数据权限切面伪代码
@@ -759,6 +761,11 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 1. **直传解耦机制**：前端上传照片/文件 $\rightarrow$ 文件存储服务生成 UUID 随机文件名 $\rightarrow$ 校验文件二进制魔数（Magic Number 校验实际 MIME 类型，拦截改名伪装的脚本文件） $\rightarrow$ 存储后返回唯一 File ID。
 2. **大小控制**：现场照片单张 $\le 10$ MB，PDF/程序附件单个 $\le 50$ MB。
 
+### 6.4 前端细粒度 RBAC 与无权限功能直接关闭机制 (REQ-USR-001)
+1. **侧边栏菜单级物理收敛**：管理员专用模块（用户与班组管理、系统设置与审计）由 `v-if="authStore.isAdmin"` 控制，非管理员角色（车间主管、工程师、技术员）左侧菜单完全不展示入口。
+2. **全局指令 `v-permission` 按钮级移除**：未授权角色登录后，相关操作按钮（如“录入设备”、“导出Excel”、“删除”、“编制维护计划”、“升级版本”、“编制实操新课程”等）通过 `v-permission` 挂载时直接从 DOM 树物理移除，杜绝未授权按钮造成用户误点击与 403 报错提示。
+3. **路由守卫拦截**：直接敲击未授权 URL（如 `/users`）时，路由守卫直接重定向至 403 页面，不向后端发出非法 API 请求。
+
 ---
 
 ## 7. 需求全覆盖追踪矩阵 (RTM)
@@ -767,9 +774,9 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 
 | 需求编号 | 需求名称 | 对应数据库设计 (Tables) | 对应后端接口 (API Endpoints) | 前端视图与交互组件 | 验收测试验证方案 |
 |:---|:---|:---|:---|:---|:---|
-| **REQ-USR-001** | 三层角色与权限定义 | `sys_users.role_code` | 全局 RBAC 拦截器 | 侧边栏菜单权限指令 `v-permission` | 切换3种角色登录，验证按钮显隐与接口 403 拦截 |
+| **REQ-USR-001** | 四层角色定义与无权限功能直接关闭 | `sys_users.role_code` | 全局 RBAC 拦截器 | 侧边栏菜单收敛 + `v-permission` DOM移除 | 切换4种角色登录，验证按钮与菜单直接关闭，0报错 |
 | **REQ-USR-002** | 工作类型与数据范围隔离 | `sys_users.work_type` | `apply_work_type_scope` 切面 | 设备台账与工单列表专业过滤条 | 电气用户登录无法查看机械风机设备 |
-| **REQ-USR-003** | 账号全生命周期管理 | `sys_users` (无物理删除) | `POST/PUT /api/v1/users` | 用户管理列表、编辑弹窗 | 禁用员工账号，历史台账修改人仍准确显示 |
+| **REQ-USR-003** | 账号全生命周期管理 | `sys_users` (无物理删除) | `POST/PUT/DELETE /api/v1/users` | 用户管理列表、编辑弹窗 | 禁用或软删除员工账号，历史台账修改人仍准确显示 |
 | **REQ-USR-004** | 密码安全与过期轮换 | `sys_users.password_updated_at` | `POST /api/v1/auth/force-change-password` | 强制改密弹窗 (不可关闭) | 新建账号首次登录，不改密无法进入主页 |
 | **REQ-USR-005** | 密码自助找回与重置 | Redis 临时 Token (15分钟) | `POST /api/v1/auth/reset-password` | 忘记密码页、重置邮件模板 | 申请重置，点击邮件链接重设密码并校验过期失效 |
 | **REQ-USR-006** | 登录防护与会话安全 | `sys_users.failed_login_attempts` | `POST /api/v1/auth/login` | 登录表单、锁定剩余倒计时提示 | 连续5次错误密码，第6次输入正确密码仍拒绝 |

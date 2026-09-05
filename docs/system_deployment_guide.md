@@ -244,3 +244,7 @@ cp -r /tmp/restore/uploads/* /root/MaintainWise/uploads/
 
 ### Q3: 访问 Web 页面提示 404 或静态资源加载失败？
 - 请确认是否已执行前端生产构建。执行 `bash deploy/scripts/deploy_linux.sh install` 重新编译出 `frontend/dist` 静态资源目录即可。
+
+### Q4: Ubuntu 24.04+ 安装 Python 依赖提示 error: externally-managed-environment？
+- **原因**：现代 Linux 发行版（如 Ubuntu 24.04 LTS、Debian 12+）遵循 PEP 668 规范，防止第三方 pip 覆盖操作系统级系统库。
+- **解决机制**：系统的 `deploy_linux.sh`、`start_local.sh` 及 `test_local.sh` 运维脚本已全面自适应 PEP 668。执行时会自动探测并构建独立的 `.venv` 虚拟环境隔离安装依赖；若环境缺少 venv 工具，则自动附加 `--break-system-packages` 标志安全安装，全程无需人工排查。

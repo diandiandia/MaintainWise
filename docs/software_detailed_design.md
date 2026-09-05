@@ -78,14 +78,15 @@
 ├── frontend/                       # 前端交互工程 (Vue 3 / Vite / TypeScript / Element Plus)
 │   ├── src/
 │   │   ├── api/                    # Axios API 请求封装与全局拦截器
-│   │   ├── components/             # 通用业务组件 (图片比对浮窗、时间线、参数渲染器)
-│   │   ├── router/                 # Vue Router 路由定义与强制改密守卫 (Route Guard)
+│   │   ├── components/             # 通用业务组件 (图片比对浮窗、时间线、参数渲染器、快捷悬浮菜单)
+│   │   ├── directives/             # 权限控制指令 (v-permission 按钮与DOM节点物理移除)
+│   │   ├── router/                 # Vue Router 路由定义与强制改密/RBAC守卫 (Route Guard)
 │   │   ├── stores/                 # Pinia 状态管理 (Auth, Todo, Equipment, Inspection)
-│   │   ├── views/                  # 业务页面 (仪表盘、巡检打卡、设备台账、故障复盘)
+│   │   ├── views/                  # 业务页面 (大盘、巡检打卡、设备台账、故障复盘、用户管理、系统配置)
 │   │   └── styles/                 # 工业触控适配 CSS (48px 触控热区)
 │   ├── Dockerfile
 │   └── package.json
-└── deploy/                         # 容器化与运维脚本 (Nginx, Postgres, Scripts)
+└── deploy/                         # 容器化与运维脚本 (Nginx, Postgres, deploy_linux.sh)
 ```
 
 ---
@@ -621,18 +622,55 @@ export function setupRouterGuard(router: Router) {
   - 后台调度任务（维保提前提醒批处理、SLA 逾期告警升级）调用 `EmailService.send_email` 时动态拉取当前启用的配置，无需重启后端服务即可热生效。
   - 任何配置更新动作通过 `AuditLog` 自动记录到 180 天防篡改操作审计流水中。
 
+### 6.4 细粒度角色控制与按钮级 `v-permission` DOM 物理移除指令 (SWR-USR-001)
+为满足工业现场“操作入口与权限严格匹配、未授权功能直接关闭杜绝报错弹窗”的交互要求，前端工程构建了三层联动防御体系：
+
+1. **侧边栏导航菜单收敛 (`Layout.vue`)**：
+   - 管理员专用模块（“用户与班组管理”、“系统设置与审计”）在侧边栏模板中绑定 `v-if="authStore.isAdmin"`。
+   - 非管理员角色（`SUPERVISOR`、`ENGINEER`、`TECHNICIAN`）登录后，侧边栏完全不渲染受限菜单入口，防止越权误导。
+
+2. **全局自定义权限指令 (`directives/permission.ts`)**：
+   - 前端全局注册 `v-permission` 自定义指令，在元素挂载生命周期检测当前登录用户角色：
+   ```typescript
+   export const permissionDirective: Directive = {
+     mounted(el: HTMLElement, binding: DirectiveBinding) {
+       const { value } = binding;
+       const authStore = useAuthStore();
+       const userRole = authStore.userInfo?.role_code;
+       if (value) {
+         const allowedRoles = Array.isArray(value) ? value : [value];
+         const hasPermission = !!userRole && allowedRoles.includes(userRole);
+         if (!hasPermission) {
+           // 直接从 DOM 树物理移除节点，杜绝未授权按钮引起 403 弹窗
+           el.parentNode?.removeChild(el);
+         }
+       }
+     }
+   };
+   ```
+
+3. **视图核心受控按钮绑定清单**：
+   - 设备台账视图 (`EquipmentListView.vue`)：“录入设备”、“导出Excel”、表格行“删除”绑定 `v-permission="['ADMIN', 'ENGINEER']"`。
+   - 维护计划视图 (`MaintenancePlanView.vue`)：“编制新维护计划”、表格行“升级版本快照”绑定 `v-permission="['ADMIN', 'ENGINEER']"`。
+   - 技能实训视图 (`TrainingView.vue`)：“编制实操新课程”绑定 `v-permission="['ADMIN', 'ENGINEER']"`。
+   - 故障流转看板 (`FaultKanbanView.vue`)：“并发抢单认领”、“维修复盘提交”、“验收归档关闭”绑定 `v-permission="['ADMIN', 'ENGINEER']"`。
+   - 知识库视图 (`KnowledgeView.vue`)：“录入知识条目”绑定 `v-permission="['ADMIN', 'ENGINEER']"`。
+
+4. **路由守卫硬拦截 (`router/guard.ts`)**：
+   - 针对直接在浏览器地址栏输入受限 URL（如 `/users`）的行为，路由守卫拦截 `to.meta.roles`，非授权角色直接阻断并重定向至 403 页面，不向后端发出任何非法 API 请求。
+
 ---
 
 ## 7. 软件设计追踪矩阵 (SWR to SDD Traceability)
 
 | 软件需求编号 | 需求名称 | 详细设计模块 (Module & Class) | 核心实现代码/类文件路径 | 单元测试用例编号 |
 |:---|:---|:---|:---|:---|
-| **SWR-USR-001** | 角色权限控制 | `deps.require_role`, `v-permission` | `backend/app/api/deps.py` | `TEST-USR-001` |
+| **SWR-USR-001** | 角色权限控制与无权限直接关闭 | `deps.require_role`, `v-permission` | `backend/app/api/deps.py`, `frontend/src/directives/permission.ts` | `TEST-USR-001` |
 | **SWR-USR-002** | 工作类型数据过滤 | `apply_work_type_scope` 过滤器 | `backend/app/repositories/base.py` | `TEST-USR-002` |
-| **SWR-USR-003** | 账号生命周期与软禁用 | `UserService.update_status` | `backend/app/services/user.py` | `TEST-USR-003` |
+| **SWR-USR-003** | 账号全生命周期与软禁用/软删除 | `UserService`, `UsersRouter` (全量CRUD与软删除) | `backend/app/api/v1/users.py`, `frontend/src/views/UserManagementView.vue` | `TEST-USR-003` |
 | **SWR-USR-004** | 强制改密双重阻断 | `JWT Auth Middleware`, `Router Guard` | `backend/app/core/security.py` | `TEST-USR-004` |
 | **SWR-USR-005** | 邮箱重置一次性Token | `Redis Token Service` | `backend/app/core/redis.py` | `TEST-USR-005` |
-| **SWR-USR-006** | 防暴破锁定与超时登出 | `LoginAttemptLimiter` | `backend/app/core/security.py` | `TEST-USR-006` |
+| **SWR-USR-006** | 防暴破锁定与8小时生产会话 | `LoginAttemptLimiter` + 480分钟单班次Token | `backend/app/core/security.py`, `backend/app/core/config.py` | `TEST-USR-006` |
 | **SWR-USR-007** | 全局操作人审计自动注入 | `AuditModelListener` | `backend/app/models/base.py` | `TEST-USR-007` |
 | **SWR-USR-008** | 操作级细粒度权限校验 | `ActionPermissionChecker` | `backend/app/api/deps.py` | `TEST-USR-008` |
 | **SWR-DEV-001** | 5级位置树防成环算法 | `LocationTreeService.validate_path` | `backend/app/services/location.py` | `TEST-DEV-001` |
