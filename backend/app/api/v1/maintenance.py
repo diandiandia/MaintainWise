@@ -30,19 +30,29 @@ def list_plans(
     current_user: User = Depends(get_current_user),
     _fcp: User = Depends(check_fcp_status)
 ):
-    plans = db.query(MaintenancePlan).filter(MaintenancePlan.is_deleted == False).all()
+    plans = db.query(MaintenancePlan).filter(MaintenancePlan.is_deleted == False).order_by(MaintenancePlan.id.desc()).all()
     results = []
     for p in plans:
         items = db.query(MaintenancePlanItem).filter(MaintenancePlanItem.plan_id == p.id).order_by(MaintenancePlanItem.item_order).all()
+        adv_days = getattr(p, "advance_notice_days", None)
+        if adv_days is None:
+            adv_hours = getattr(p, "advance_warning_hours", 48) or 48
+            adv_days = max(1, round(adv_hours / 24.0))
+
         results.append({
             "id": p.id,
             "plan_code": p.plan_code,
             "plan_name": p.plan_name,
             "plan_type": p.plan_type,
+            "trigger_mode": getattr(p, "trigger_mode", "CALENDAR") or "CALENDAR",
             "interval_days": p.interval_days,
             "interval_hours": getattr(p, "interval_hours", p.interval_days * 24),
+            "advance_notice_days": adv_days,
+            "advance_warning_hours": getattr(p, "advance_warning_hours", 48) or 48,
             "version_no": p.version_no,
             "sop_content": p.sop_content,
+            "is_active": getattr(p, "is_active", True),
+            "equipment_ids": getattr(p, "equipment_ids", []),
             "items_count": len(items)
         })
     return BaseResponse(data=results)
@@ -56,15 +66,24 @@ def create_plan(
 ):
     interval_hours = req.interval_hours or (req.interval_days * 24 if req.interval_days else 720)
     interval_days = max(1, interval_hours // 24)
+    trigger_mode = req.trigger_mode or "CALENDAR"
+
+    if trigger_mode == "CALENDAR":
+        advance_notice_days = req.advance_notice_days if req.advance_notice_days is not None else 3
+        advance_warning_hours = req.advance_warning_hours or (advance_notice_days * 24)
+    else:
+        advance_warning_hours = req.advance_warning_hours or 48
+        advance_notice_days = req.advance_notice_days if req.advance_notice_days is not None else max(1, round(advance_warning_hours / 24.0))
 
     plan = MaintenancePlan(
         plan_code=req.plan_code,
         plan_name=req.plan_name,
         plan_type=req.plan_type,
-        trigger_mode=req.trigger_mode or "CALENDAR",
+        trigger_mode=trigger_mode,
         interval_days=interval_days,
         interval_hours=interval_hours,
-        advance_warning_hours=req.advance_warning_hours or 48,
+        advance_notice_days=advance_notice_days,
+        advance_warning_hours=advance_warning_hours,
         version_no="V1.0",
         sop_content=req.sop_content,
         equipment_ids=req.equipment_ids or [],

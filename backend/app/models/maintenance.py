@@ -15,6 +15,7 @@ class MaintenancePlan(BaseAuditModel):
     is_active = Column(Boolean, default=True, nullable=False)
     equipment_ids = Column(JSON, default=list, nullable=False) # 关联设备ID列表，支持多设备共用同一维护计划
     trigger_mode = Column(String(32), default="CALENDAR", nullable=False) # CALENDAR: 按日历周期; OPERATING_HOURS: 按实际运行工时
+    advance_notice_days = Column(Integer, default=3, nullable=False) # 提前预警天数 (CALENDAR 模式使用，默认提前3天)
     advance_warning_hours = Column(Integer, default=48, nullable=False) # 提前预警小时数 (默认提前48小时通知)
 
 class MaintenancePlanItem(Base):

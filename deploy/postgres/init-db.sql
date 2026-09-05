@@ -158,7 +158,8 @@ CREATE TABLE IF NOT EXISTS maintenance_plans (
     trigger_mode VARCHAR(32) NOT NULL DEFAULT 'CALENDAR', -- CALENDAR (日历天) / OPERATING_HOURS (工时制)
     interval_days INT NOT NULL DEFAULT 30,
     interval_hours INT NOT NULL DEFAULT 720, -- 倒计时周期最小为小时
-    advance_warning_hours INT NOT NULL DEFAULT 48, -- 提前预警小时数 (默认提前48小时通知)
+    advance_notice_days INT NOT NULL DEFAULT 3, -- 提前预警天数 (日历周期模式)
+    advance_warning_hours INT NOT NULL DEFAULT 48, -- 提前预警小时数 (工时模式默认提前48小时通知)
     version_no VARCHAR(16) NOT NULL DEFAULT 'V1.0',
     sop_content TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,

@@ -36,13 +36,13 @@
                 {{ row.interval_hours }} 小时（{{ (row.interval_hours / 24).toFixed(1) }}天）
               </template>
             </el-table-column>
-            <el-table-column label="提前预警" width="110">
+            <el-table-column label="提前预警" width="120">
               <template #default="{ row }">
                 <span v-if="row.trigger_mode === 'OPERATING_HOURS'">
                   {{ row.advance_warning_hours || 48 }} 小时
                 </span>
                 <span v-else>
-                  {{ row.advance_notice_days }} 天
+                  {{ row.advance_notice_days ?? (row.advance_warning_hours ? Math.round(row.advance_warning_hours / 24) : 3) }} 天
                 </span>
               </template>
             </el-table-column>
@@ -404,8 +404,8 @@ const submitPlan = async () => {
       trigger_mode: planForm.trigger_mode,
       interval_hours: planForm.interval_hours,
       interval_days: Math.ceil(planForm.interval_hours / 24),
-      advance_notice_days: planForm.advance_notice_days,
-      advance_warning_hours: planForm.advance_warning_hours,
+      advance_notice_days: planForm.trigger_mode === 'CALENDAR' ? (planForm.advance_notice_days || 3) : Math.max(1, Math.round((planForm.advance_warning_hours || 48) / 24)),
+      advance_warning_hours: planForm.trigger_mode === 'OPERATING_HOURS' ? (planForm.advance_warning_hours || 48) : (planForm.advance_notice_days || 3) * 24,
       sop_content: planForm.plan_name + ' 标准维护流程',
       equipment_ids: planForm.equipment_ids,
       items: planForm.items.map((it, idx) => ({
