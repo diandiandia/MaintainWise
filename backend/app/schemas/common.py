@@ -5,7 +5,7 @@ import time
 T = TypeVar("T")
 
 class BaseResponse(BaseModel, Generic[T]):
-    code: int = Field(default=0, description="业务状态码，0表示成功")
+    code: int = Field(default=200, description="业务状态码，200表示成功")
     message: str = Field(default="操作成功", description="响应说明")
     data: Optional[T] = Field(default=None, description="业务数据载荷")
     timestamp: int = Field(default_factory=lambda: int(time.time()), description="时间戳")

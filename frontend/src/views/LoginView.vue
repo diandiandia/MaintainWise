@@ -40,9 +40,7 @@
 
           <div class="quick-credentials">
             <span class="label">测试快速填充：</span>
-            <el-button size="small" link type="primary" @click="fillAccount('admin', 'Admin@2026!')">系统管理员</el-button>
-            <el-button size="small" link type="success" @click="fillAccount('tech_mech', 'Tech@2026!')">机械技术员</el-button>
-            <el-button size="small" link type="warning" @click="fillAccount('supervisor1', 'Super@2026!')">车间主管</el-button>
+            <el-button size="small" link type="primary" @click="fillAccount('admin', 'MaintainWiseAdmin@2026')">系统管理员 (admin)</el-button>
           </div>
 
           <el-button
@@ -104,7 +102,7 @@ const handleLogin = async () => {
         password: loginForm.password,
       });
 
-      if (res.code === 200) {
+      if (res.code === 200 || res.code === 0) {
         ElMessage.success('登录成功');
         if (res.data?.force_change_password) {
           ElMessage.warning('首次登录或重置，请立即修改密码以保障账号安全');

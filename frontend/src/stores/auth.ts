@@ -27,7 +27,7 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     async login(loginForm: { username: string; password: string }) {
       const res = await apiClient.post<any, any>('/auth/login', loginForm);
-      if (res.code === 200 && res.data) {
+      if ((res.code === 200 || res.code === 0) && res.data) {
         this.token = res.data.access_token;
         this.userInfo = {
           id: res.data.user_id,
@@ -45,7 +45,7 @@ export const useAuthStore = defineStore('auth', {
     async fetchProfile() {
       try {
         const res = await apiClient.get<any, any>('/auth/me');
-        if (res.code === 200 && res.data) {
+        if ((res.code === 200 || res.code === 0) && res.data) {
           this.userInfo = res.data;
           localStorage.setItem('maintainwise_user', JSON.stringify(this.userInfo));
         }
@@ -55,7 +55,7 @@ export const useAuthStore = defineStore('auth', {
     },
     async forceChangePassword(payload: { old_password: string; new_password: string }) {
       const res = await apiClient.post<any, any>('/auth/force-change-password', payload);
-      if (res.code === 200) {
+      if (res.code === 200 || res.code === 0) {
         if (this.userInfo) {
           this.userInfo.force_change_password = false;
           localStorage.setItem('maintainwise_user', JSON.stringify(this.userInfo));

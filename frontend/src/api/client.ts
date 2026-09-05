@@ -24,6 +24,9 @@ apiClient.interceptors.request.use(
 // Response Interceptor
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => {
+    if (response.data && response.data.code === 0) {
+      response.data.code = 200;
+    }
     return response.data;
   },
   (error) => {

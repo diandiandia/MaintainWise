@@ -176,7 +176,7 @@ def test_full_system_e2e_lifecycle():
         assert interlocked_fault_id is not None
 
         # 校验单事务强一致性：关联设备状态跃迁至 FAULTY
-        eq_recheck = client.get("/api/v1/equipments", headers=valid_headers)
+        eq_recheck = client.get("/api/v1/equipments?limit=100", headers=valid_headers)
         target_eq = next(e for e in eq_recheck.json()["data"]["items"] if e["id"] == equipment_id)
         assert target_eq["status"] == "FAULTY"
 
@@ -218,7 +218,7 @@ def test_full_system_e2e_lifecycle():
         assert any(a["root_cause"] == resolve_payload["root_cause"] for a in articles)
 
         # 校验设备恢复正常运行 RUNNING
-        eq_restored = client.get("/api/v1/equipments", headers=valid_headers)
+        eq_restored = client.get("/api/v1/equipments?limit=100", headers=valid_headers)
         target_eq_restored = next(e for e in eq_restored.json()["data"]["items"] if e["id"] == equipment_id)
         assert target_eq_restored["status"] == "RUNNING"
 
