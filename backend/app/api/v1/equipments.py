@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Response, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from app.core.database import get_db
@@ -38,6 +38,13 @@ def list_equipments(
     total = query.count()
     items = query.offset(skip).limit(limit).all()
 
+    # 批量加载位置路径信息，用于前端展示设备所属层级
+    loc_ids = list(set(eq.location_id for eq in items))
+    loc_map = {}
+    if loc_ids:
+        locs = db.query(Location).filter(Location.id.in_(loc_ids), Location.is_deleted == False).all()
+        loc_map = {l.id: l for l in locs}
+
     resp_items = []
     for eq in items:
         resp = EquipmentResponse.model_validate(eq)
@@ -45,6 +52,11 @@ def list_equipments(
         param = db.query(EquipmentParam).filter(EquipmentParam.equipment_id == eq.id).first()
         if param:
             resp.params = param.extra_params
+        # 附加位置路径信息
+        loc = loc_map.get(eq.location_id)
+        if loc:
+            resp.location_path = loc.tree_path
+            resp.location_name_display = loc.location_name
         resp_items.append(resp)
 
     return BaseResponse(data=PageResult(
@@ -66,12 +78,14 @@ def create_equipment(
     if exist:
         raise BusinessException(code=20002, message=f"设备编码【{req.equipment_code}】已存在")
 
-    # 挂载位置节点校验：只能挂载在系统节点(第3级)或叶子节点上
+    # 挂载位置节点校验：设备只能挂载在第3级系统节点(SYSTEM)上
     loc = db.query(Location).filter(Location.id == req.location_id, Location.is_deleted == False).first()
     if not loc:
         raise BusinessException(code=20001, message="指定的位置节点不存在")
-    if not loc.is_leaf and loc.level_depth < 3:
-        raise BusinessException(code=20001, message="设备信息只能挂载在系统节点(第3级)或工位叶子节点上！")
+    if loc.level_depth != 3:
+        raise BusinessException(code=20001, message="设备信息只能挂载在第3级系统节点(SYSTEM)上，请先选择正确的系统节点！")
+    if loc.node_type != "SYSTEM":
+        raise BusinessException(code=20001, message="设备信息只能挂载在系统节点(SYSTEM)上，当前节点类型为【{}】！".format(loc.node_type))
 
     interval_hours = req.maintenance_interval_hours or (req.maintenance_interval_days * 24 if req.maintenance_interval_days else 720)
     interval_days = max(1, interval_hours // 24)
@@ -173,6 +187,78 @@ def export_equipments_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=equipments.xlsx"}
     )
+
+@router.get("/export/template")
+def download_import_template(
+    current_user: User = Depends(require_role("ADMIN", "ENGINEER")),
+    _fcp: User = Depends(check_fcp_status)
+):
+    template_data = ExcelProcessor.generate_equipment_template()
+    return Response(
+        content=template_data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=equipment_import_template.xlsx"}
+    )
+
+@router.post("/import/excel", response_model=BaseResponse)
+async def import_equipments_excel(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_role("ADMIN", "ENGINEER")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    contents = await file.read()
+    if file.content_type and "spreadsheet" not in file.content_type and "excel" not in file.content_type:
+        raise BusinessException(code=50001, message="仅支持上传 .xlsx Excel 文件")
+    rows = ExcelProcessor.parse_excel(contents)
+    created_count = 0
+    errors = []
+    for idx, row in enumerate(rows):
+        row_num = idx + 2
+        try:
+            equipment_code = str(row.get("设备编码*", "")).strip()
+            equipment_name = str(row.get("设备名称*", "")).strip()
+            equipment_type = str(row.get("设备类型*", "")).strip()
+            work_type = str(row.get("工种*", "")).strip()
+            location_code = str(row.get("位置编码*", "")).strip()
+            model_spec = str(row.get("规格型号*", "")).strip()
+            interval_days_str = str(row.get("保养周期(天)", "30")).strip()
+            if not all([equipment_code, equipment_name, equipment_type, work_type, location_code, model_spec]):
+                errors.append(f"第{row_num}行: 必填字段缺失")
+                continue
+            location = db.query(Location).filter(Location.location_code == location_code, Location.is_deleted == False).first()
+            if not location:
+                errors.append(f"第{row_num}行: 位置编码【{location_code}】不存在")
+                continue
+            exist = db.query(Equipment).filter(Equipment.equipment_code == equipment_code, Equipment.is_deleted == False).first()
+            if exist:
+                errors.append(f"第{row_num}行: 设备编码【{equipment_code}】已存在")
+                continue
+            try:
+                interval_days = int(interval_days_str) if interval_days_str else 30
+            except ValueError:
+                interval_days = 30
+            eq = Equipment(
+                equipment_code=equipment_code,
+                equipment_name=equipment_name,
+                equipment_type=equipment_type,
+                work_type=work_type,
+                location_id=location.id,
+                model_spec=model_spec,
+                maintenance_interval_days=interval_days,
+                status="RUNNING",
+                created_by=current_user.id
+            )
+            db.add(eq)
+            created_count += 1
+        except Exception as e:
+            errors.append(f"第{row_num}行: {str(e)}")
+    db.commit()
+    return BaseResponse(data={
+        "created_count": created_count,
+        "total_rows": len(rows),
+        "errors": errors
+    }, message=f"成功导入 {created_count} 台设备" + (f"，{len(errors)} 行失败" if errors else ""))
 
 @router.delete("/{eq_id}", response_model=BaseResponse)
 def delete_equipment(

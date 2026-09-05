@@ -22,13 +22,19 @@ def get_location_tree(
     # 构造树形结构
     node_map = {}
     for l in locs:
+        # node_type 推断：优先使用数据库中的值，若为默认值 "SYSTEM" 则根据 level_depth 推断
+        db_node_type = getattr(l, "node_type", None)
+        if db_node_type and db_node_type != "SYSTEM":
+            inferred_type = db_node_type
+        else:
+            inferred_type = "FACTORY" if l.level_depth == 1 else ("DEPARTMENT" if l.level_depth == 2 else "SYSTEM")
         resp = LocationResponse(
             id=l.id,
             parent_id=l.parent_id,
             location_name=l.location_name,
             location_code=l.location_code,
             level_depth=l.level_depth,
-            node_type=getattr(l, "node_type", None) or ("FACTORY" if l.level_depth == 1 else "DEPARTMENT" if l.level_depth == 2 else "SYSTEM"),
+            node_type=inferred_type,
             tree_path=l.tree_path,
             is_leaf=l.is_leaf,
             sort_order=l.sort_order,

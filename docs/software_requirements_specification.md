@@ -117,7 +117,7 @@ $$\text{SWR} - [\text{软件模块代码}] - [\text{三位序号}]$$
   * **PLC**：`ip_address` (必须为合法 IPv4 地址，如 `^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$`)，`comm_protocol` 枚举校验。
   * **风机**：`air_volume_m3h > 0`，`air_pressure_pa > 0`，`rated_speed_rpm > 0`。
   * **电机**：`rated_power_kw > 0`，`insulation_class` 限制为 `['A', 'E', 'B', 'F', 'H', 'C']`。
-  * **传感器**：`output_signal_type` 限制为 `['4-20mA', '0-10V', 'PNP', 'NPN', 'RS485']`。
+  * **传感器**：`output_signal_type` 限制为 `['4-20mA', '0-10V', '0-5V', 'PNP', 'NPN', 'RS485', 'IO-Link']`。
   * 其余类型均定义对应的强类型子模型。
 
 #### SWR-DEV-005: 设备有限状态机跃迁引擎

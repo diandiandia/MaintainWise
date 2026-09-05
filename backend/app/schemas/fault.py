@@ -12,8 +12,8 @@ class FaultCreateRequest(BaseModel):
     evidence_file_id: Optional[int] = None
 
 class FaultResolveRequest(BaseModel):
-    root_cause: str = Field(..., min_length=5, description="根本原因分析必填且至少5字")
-    solution_steps: str = Field(..., min_length=5, description="解决步骤详细描述必填且至少5字")
+    root_cause: str = Field(..., min_length=10, description="根本原因分析必填且至少10字")
+    solution_steps: str = Field(..., min_length=10, description="解决步骤详细描述必填且至少10字")
     downtime_minutes: Optional[int] = 0
     is_featured_case: Optional[bool] = False
 

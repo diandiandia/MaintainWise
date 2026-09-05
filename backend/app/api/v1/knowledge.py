@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional, List
+import io
 from app.core.database import get_db
 from app.models.user import User
 from app.models.knowledge import KnowledgeArticle
 from app.schemas.common import BaseResponse, PageResult
+from app.services.excel_processor import ExcelProcessor
 from app.api.deps import get_current_user, require_role, check_fcp_status
 from app.core.exceptions import BusinessException
 
@@ -78,3 +81,33 @@ def toggle_feature_article(
     article.is_featured = is_featured
     db.commit()
     return BaseResponse(message=f"典型案例标记已{'启用' if is_featured else '取消'}")
+
+@router.get("/export/articles", response_class=StreamingResponse)
+def export_knowledge_articles(
+    current_user: User = Depends(get_current_user),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    articles = db.query(KnowledgeArticle).filter(KnowledgeArticle.is_deleted == False).order_by(KnowledgeArticle.created_at.desc()).all()
+    headers = ["文章编码", "设备类型", "设备型号", "故障系统", "故障标题", "故障现象", "根因分析", "解决步骤", "标签", "是否精选", "浏览量"]
+    rows = []
+    for a in articles:
+        rows.append([
+            a.article_code,
+            a.equipment_type,
+            a.equipment_model,
+            a.fault_system,
+            a.fault_title,
+            a.fault_phenomenon,
+            a.root_cause,
+            a.solution_steps,
+            ", ".join(a.tags) if a.tags else "",
+            "是" if a.is_featured else "否",
+            a.view_count
+        ])
+    excel_data = ExcelProcessor.export_to_excel(headers, rows, sheet_name="知识库手册")
+    return StreamingResponse(
+        io.BytesIO(excel_data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=knowledge_base.xlsx"}
+    )

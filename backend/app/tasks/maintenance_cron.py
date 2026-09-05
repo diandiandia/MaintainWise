@@ -2,7 +2,7 @@ import datetime
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.equipment import Equipment
-from app.models.maintenance import MaintenanceTask
+from app.models.maintenance import MaintenancePlan, MaintenanceTask
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,20 +14,26 @@ def run_daily_maintenance_countdown_job(db: Session = None):
         close_db = True
 
     today = datetime.date.today()
-    chunk_size = 100
-    offset = 0
     updated_count = 0
     new_tasks_count = 0
 
     try:
-        while True:
+        # 获取所有启用的维护计划及其关联的设备ID列表
+        plans = db.query(MaintenancePlan).filter(
+            MaintenancePlan.is_active == True,
+            MaintenancePlan.is_deleted == False
+        ).all()
+
+        for plan in plans:
+            equipment_ids = plan.equipment_ids or []
+            if not equipment_ids:
+                continue
+
             equipments = db.query(Equipment).filter(
+                Equipment.id.in_(equipment_ids),
                 Equipment.status.in_(["RUNNING", "MAINTENANCE_PENDING"]),
                 Equipment.is_deleted == False
-            ).order_by(Equipment.id).offset(offset).limit(chunk_size).all()
-
-            if not equipments:
-                break
+            ).all()
 
             for eq in equipments:
                 try:
@@ -44,6 +50,7 @@ def run_daily_maintenance_countdown_job(db: Session = None):
                         # 防重复生成今日待办
                         exist_task = db.query(MaintenanceTask).filter(
                             MaintenanceTask.equipment_id == eq.id,
+                            MaintenanceTask.plan_id == plan.id,
                             MaintenanceTask.scheduled_date == today,
                             MaintenanceTask.status == "PENDING"
                         ).first()
@@ -51,10 +58,10 @@ def run_daily_maintenance_countdown_job(db: Session = None):
                         if not exist_task:
                             task = MaintenanceTask(
                                 task_code=f"TSK-{eq.equipment_code}-{today.strftime('%Y%m%d')}",
-                                plan_id=1,
+                                plan_id=plan.id,
                                 equipment_id=eq.id,
                                 assigned_tech_id=eq.responsible_engineer_id,
-                                plan_version_snapshot="V1.0",
+                                plan_version_snapshot=plan.version_no,
                                 scheduled_date=today,
                                 due_date=today + datetime.timedelta(days=3),
                                 status="PENDING"
@@ -76,8 +83,6 @@ def run_daily_maintenance_countdown_job(db: Session = None):
                 except Exception as ex:
                     db.rollback()
                     logger.error(f"设备 ID={eq.id} 倒计时调度异常: {str(ex)}")
-
-            offset += chunk_size
 
         return {"updated_equipments": updated_count, "new_tasks": new_tasks_count}
     finally:

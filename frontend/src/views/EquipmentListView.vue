@@ -6,26 +6,63 @@
         <el-card shadow="never" class="location-card">
           <template #header>
             <div class="card-header">
-              <span class="header-title">车间层级拓扑树 (4级)</span>
+              <span class="header-title">车间层级拓扑</span>
               <div class="header-tools">
-                <el-button v-if="authStore.isAdmin" size="small" type="primary" link @click="openAddLocation(1)">+ 新建工厂</el-button>
+                <el-button v-if="authStore.isAdmin" size="small" type="primary" @click="openAddLocation(1)">+ 新建工厂</el-button>
                 <el-button size="small" link :icon="Refresh" @click="fetchLocationTree" />
               </div>
             </div>
           </template>
 
-          <!-- 选中节点快捷操作工具栏 (仅管理员可用) -->
-          <div v-if="selectedNode" class="node-action-bar">
-            <div class="node-info-text">
-              <span class="node-selected-label">当前选择:</span>
-              <span class="node-selected-name">{{ selectedNode.location_name }}</span>
+          <!-- 层级结构图例 -->
+          <div class="hierarchy-legend">
+            <div class="legend-item">
+              <span class="legend-dot" style="background: #409eff;"></span>
+              <span class="legend-text">工厂 L1</span>
             </div>
-            <div v-if="authStore.isAdmin && selectedNode.node_type !== 'EQUIPMENT'" class="node-btns">
-              <el-button v-if="selectedNode.level_depth === 1" size="small" type="success" plain @click="openAddLocation(2, selectedNode)">+ 部门</el-button>
-              <el-button v-if="selectedNode.level_depth === 2" size="small" type="warning" plain @click="openAddLocation(3, selectedNode)">+ 系统</el-button>
-              <el-button v-if="selectedNode.level_depth === 3" size="small" type="primary" plain @click="openCreateDialogWithLocation(selectedNode.id)">+ 录入设备</el-button>
-              <el-button size="small" type="danger" link :icon="Delete" @click="handleDeleteLocation(selectedNode)">删除节点</el-button>
+            <span class="legend-arrow">→</span>
+            <div class="legend-item">
+              <span class="legend-dot" style="background: #67c23a;"></span>
+              <span class="legend-text">部门 L2</span>
             </div>
+            <span class="legend-arrow">→</span>
+            <div class="legend-item">
+              <span class="legend-dot" style="background: #e6a23c;"></span>
+              <span class="legend-text">系统 L3</span>
+            </div>
+            <span class="legend-arrow">→</span>
+            <div class="legend-item">
+              <span class="legend-dot" style="background: #909399;"></span>
+              <span class="legend-text">设备 L4</span>
+            </div>
+          </div>
+
+          <!-- 选中节点快捷操作工具栏 -->
+          <div v-if="selectedNode" class="node-action-panel">
+            <div class="node-action-header">
+              <el-icon :size="16" :color="getNodeColor(selectedNode)">
+                <OfficeBuilding v-if="selectedNode.level_depth === 1" />
+                <Folder v-else-if="selectedNode.level_depth === 2" />
+                <Operation v-else-if="selectedNode.level_depth === 3" />
+                <Cpu v-else />
+              </el-icon>
+              <span class="node-action-title">{{ selectedNode.location_name }}</span>
+              <el-tag size="small" :type="getNodeTagType(selectedNode)" effect="dark">
+                {{ getNodeLabel(selectedNode) }}
+              </el-tag>
+            </div>
+            <div v-if="selectedNode.node_type !== 'EQUIPMENT'" class="node-action-btns">
+              <el-button v-if="authStore.isAdmin && selectedNode.level_depth === 1" size="small" type="success" @click="openAddLocation(2, selectedNode)">+ 新建部门</el-button>
+              <el-button v-if="authStore.isAdmin && selectedNode.level_depth === 2" size="small" type="warning" @click="openAddLocation(3, selectedNode)">+ 新建系统</el-button>
+              <el-button v-if="selectedNode.level_depth === 3" size="small" type="primary" @click="openCreateDialogWithLocation(selectedNode.id)">+ 录入设备</el-button>
+              <el-button v-if="authStore.isAdmin" size="small" type="danger" plain :icon="Delete" @click="handleDeleteLocation(selectedNode)">删除</el-button>
+            </div>
+          </div>
+
+          <!-- 未选中节点时的操作提示 -->
+          <div v-else class="node-hint">
+            <el-icon :size="14" color="#94a3b8"><InfoFilled /></el-icon>
+            <span>点击左侧树节点，可在此处快捷操作</span>
           </div>
 
           <el-tree
@@ -57,6 +94,45 @@
       <!-- 右侧设备信息与多维检索 -->
       <el-col :xs="24" :md="17">
         <el-card shadow="never" class="equipment-card">
+          <!-- 面包屑导航：展示当前选中节点的完整层级路径 -->
+          <div class="breadcrumb-bar">
+            <el-breadcrumb separator=">">
+              <el-breadcrumb-item :to="{ path: '/dashboard' }">
+                <el-icon :size="14"><HomeFilled /></el-icon>
+                <span style="margin-left: 4px;">设备信息</span>
+              </el-breadcrumb-item>
+              <el-breadcrumb-item
+                v-for="(crumb, idx) in breadcrumbPath"
+                :key="idx"
+              >
+                <span :style="{ color: getNodeColor({ level_depth: crumb.level_depth }) }">
+                  {{ crumb.location_name }}
+                </span>
+              </el-breadcrumb-item>
+            </el-breadcrumb>
+            <el-tag v-if="selectedNode" size="small" :type="getNodeTagType(selectedNode)" effect="plain">
+              {{ getNodeLabel(selectedNode) }}
+            </el-tag>
+          </div>
+
+          <!-- 选中节点概览统计 -->
+          <div v-if="selectedNode && selectedNode.node_type !== 'EQUIPMENT'" class="node-summary">
+            <div class="summary-item">
+              <span class="summary-label">节点编码</span>
+              <span class="summary-value">{{ selectedNode.location_code }}</span>
+            </div>
+            <el-divider direction="vertical" />
+            <div class="summary-item">
+              <span class="summary-label">子节点数</span>
+              <span class="summary-value">{{ selectedNode.children?.length || 0 }}</span>
+            </div>
+            <el-divider direction="vertical" />
+            <div class="summary-item">
+              <span class="summary-label">当前筛选设备</span>
+              <span class="summary-value">{{ equipments.length }} 台</span>
+            </div>
+          </div>
+
           <div class="toolbar">
             <div class="filter-inputs">
               <el-input
@@ -116,6 +192,11 @@
           >
             <el-table-column prop="equipment_code" label="设备编号" width="130" font-weight="600" />
             <el-table-column prop="equipment_name" label="设备名称" min-width="140" />
+            <el-table-column label="所属位置" min-width="160">
+              <template #default="{ row }">
+                <span class="location-path-cell">{{ getLocationPath(row.location_id) }}</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="equipment_type" label="类型" width="100">
               <template #default="{ row }">
                 <el-tag size="small">{{ row.equipment_type }}</el-tag>
@@ -262,8 +343,8 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="所属系统/位置ID (第3级挂载)" prop="location_id">
-              <el-input-number v-model="form.location_id" :min="1" style="width: 100%;" />
+            <el-form-item label="所属系统节点ID (第3级，请先选中左侧系统节点)" prop="location_id">
+              <el-input-number v-model="form.location_id" :min="1" style="width: 100%;" placeholder="点击左侧系统节点自动填入" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -385,6 +466,8 @@ import {
   Plus,
   Download,
   Delete,
+  HomeFilled,
+  InfoFilled,
 } from '@element-plus/icons-vue';
 
 const authStore = useAuthStore();
@@ -394,6 +477,41 @@ const equipments = ref<any[]>([]);
 const locationTree = ref<any[]>([]);
 const selectedNode = ref<any>(null);
 const treeProps = { children: 'children', label: 'location_name' };
+
+// 扁平化节点映射表：id -> node，用于面包屑路径解析和位置路径展示
+const locationMap = ref<Record<string, any>>({});
+
+// 面包屑路径：根据 selectedNode 的 tree_path 解析出完整路径
+const breadcrumbPath = computed(() => {
+  if (!selectedNode.value) return [];
+  const treePath = selectedNode.value.tree_path || '';
+  const ids = treePath.split('/').filter(Boolean);
+  return ids.map((id: string) => locationMap.value[id]).filter(Boolean);
+});
+
+// 获取设备的完整所属位置路径（工厂 > 部门 > 系统）
+const getLocationPath = (locId: number): string => {
+  const node = locationMap.value[String(locId)];
+  if (!node || !node.tree_path) return '-';
+  const ids = node.tree_path.split('/').filter(Boolean);
+  const names = ids.map((id: string) => locationMap.value[id]?.location_name).filter(Boolean);
+  return names.join(' > ') || node.location_name || '-';
+};
+
+// 将树形数据递归扁平化为 id -> node 的映射
+const buildLocationMap = (nodes: any[]) => {
+  const map: Record<string, any> = {};
+  const walk = (list: any[]) => {
+    for (const n of list) {
+      map[String(n.id)] = n;
+      if (n.children && n.children.length > 0) {
+        walk(n.children);
+      }
+    }
+  };
+  walk(nodes);
+  locationMap.value = map;
+};
 
 const filters = reactive({
   keyword: '',
@@ -489,7 +607,15 @@ const handleDeleteLocation = async (node: any) => {
 };
 
 const openCreateDialogWithLocation = (locId: number) => {
+  form.equipment_code = '';
+  form.equipment_name = '';
+  form.equipment_type = 'FAN';
+  form.work_type = 'MECHANICAL';
+  form.model_spec = '';
   form.location_id = locId;
+  form.maintenance_interval_hours = 720;
+  form.rated_voltage = '380V';
+  formRef.value?.resetFields();
   createDialogVisible.value = true;
 };
 
@@ -502,7 +628,7 @@ const form = reactive({
   equipment_type: 'FAN',
   work_type: 'MECHANICAL',
   model_spec: '',
-  location_id: 1,
+  location_id: null as number | null,
   maintenance_interval_hours: 720,
   rated_voltage: '380V',
 });
@@ -522,7 +648,7 @@ const formRules = {
   equipment_code: [{ required: true, message: '请输入编号', trigger: 'blur' }],
   equipment_name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
   equipment_type: [{ required: true, message: '请选择类型', trigger: 'change' }],
-  location_id: [{ required: true, message: '请指定系统位置ID', trigger: 'blur' }],
+  location_id: [{ required: true, message: '请先在左侧树中选中系统节点，再点击录入设备', trigger: 'change' }],
 };
 
 // 电子履历
@@ -586,6 +712,7 @@ const fetchLocationTree = async () => {
     const res = await apiClient.get<any, any>('/locations/tree?include_equipments=true');
     if (res.code === 200) {
       locationTree.value = res.data;
+      buildLocationMap(res.data);
     }
   } catch (err) {
     console.error(err);
@@ -593,6 +720,14 @@ const fetchLocationTree = async () => {
 };
 
 const handleNodeClick = (node: any) => {
+  if (!node) return;
+  // node_type 兜底：若后端未返回或为默认值 "SYSTEM"，根据 level_depth 推断
+  if (!node.node_type || node.node_type === 'SYSTEM') {
+    if (node.level_depth === 1) node.node_type = 'FACTORY';
+    else if (node.level_depth === 2) node.node_type = 'DEPARTMENT';
+    else if (node.level_depth === 3) node.node_type = 'SYSTEM';
+    else if (node.level_depth === 4) node.node_type = 'EQUIPMENT';
+  }
   selectedNode.value = node;
   if (node.node_type === 'EQUIPMENT' && node.equipment_id) {
     filters.keyword = node.location_code;
@@ -640,6 +775,16 @@ const fetchEquipments = async () => {
 };
 
 const openCreateDialog = () => {
+  // 重置表单
+  form.equipment_code = '';
+  form.equipment_name = '';
+  form.equipment_type = 'FAN';
+  form.work_type = 'MECHANICAL';
+  form.model_spec = '';
+  form.location_id = null;
+  form.maintenance_interval_hours = 720;
+  form.rated_voltage = '380V';
+  formRef.value?.resetFields();
   createDialogVisible.value = true;
 };
 
@@ -745,37 +890,92 @@ onMounted(() => {
   color: #1e293b;
 }
 
-.node-action-bar {
-  background-color: #f1f5f9;
-  padding: 8px 12px;
-  border-radius: 6px;
-  margin-bottom: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.node-info-text {
-  font-size: 12px;
-}
-
-.node-selected-label {
-  color: #64748b;
-  margin-right: 4px;
-}
-
-.node-selected-name {
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.node-btns {
+/* 层级结构图例 */
+.hierarchy-legend {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
   flex-wrap: wrap;
 }
 
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.legend-text {
+  font-size: 11px;
+  color: #475569;
+  font-weight: 500;
+}
+
+.legend-arrow {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+/* 节点操作面板 */
+.node-action-panel {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.node-action-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.node-action-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #0f172a;
+  flex: 1;
+}
+
+.node-action-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  flex-wrap: wrap;
+}
+
+/* 未选中节点提示 */
+.node-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* 树节点 */
 .tree-node {
   display: flex;
   align-items: center;
@@ -797,8 +997,58 @@ onMounted(() => {
   padding: 0 4px;
 }
 
+/* 右侧面板 */
 .equipment-card {
   min-height: calc(100vh - 120px);
+}
+
+/* 面包屑导航 */
+.breadcrumb-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  margin-bottom: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+/* 节点概览统计 */
+.node-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  margin-bottom: 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.summary-label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.summary-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+/* 位置路径列 */
+.location-path-cell {
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.4;
 }
 
 .toolbar {

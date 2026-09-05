@@ -16,6 +16,7 @@ class MaintenancePlanCreateRequest(BaseModel):
     interval_days: Optional[int] = Field(30, gt=0)
     interval_hours: Optional[int] = Field(None, gt=0, description="倒计时周期单位最小为小时")
     sop_content: str = Field(..., min_length=5)
+    equipment_ids: Optional[List[int]] = Field(default=[], description="关联设备ID列表")
     items: List[PlanItemCreateRequest]
 
 class InspectionDetailSubmit(BaseModel):

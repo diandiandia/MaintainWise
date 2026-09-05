@@ -4,6 +4,7 @@ from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.models.user import User
 from app.core.exceptions import BusinessException
+from app.core.audit_context import current_user_id, current_username
 
 def get_current_user(
     authorization: str = Header(..., description="Bearer JWT Token"),
@@ -23,6 +24,10 @@ def get_current_user(
         raise BusinessException(code=10004, message="用户不存在", status_code=401)
     if not user.is_active:
         raise BusinessException(code=10002, message="账户已被管理员禁用", status_code=403)
+    
+    # 设置审计上下文变量 (SWR-SYS-005 / SWR-USR-007)
+    current_user_id.set(user.id)
+    current_username.set(user.username)
         
     return user
 

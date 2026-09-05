@@ -1,7 +1,9 @@
 import datetime
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional, List
+import io
 from app.core.database import get_db
 from app.models.user import User
 from app.models.fault import FaultRecord
@@ -12,6 +14,7 @@ from app.schemas.common import BaseResponse, PageResult
 from app.services.fault_claim import FaultClaimService
 from app.services.recommend_engine import RecommendationEngine
 from app.services.state_machine import FaultStateMachine, EquipmentStateMachine
+from app.services.excel_processor import ExcelProcessor
 from app.api.deps import get_current_user, require_role, check_fcp_status
 from app.core.exceptions import BusinessException
 
@@ -55,11 +58,12 @@ def recommend_similar(
     equipment_type: str,
     model_spec: str,
     fault_desc: str,
+    fault_part: str = "",
     current_user: User = Depends(get_current_user),
     _fcp: User = Depends(check_fcp_status),
     db: Session = Depends(get_db)
 ):
-    cases = RecommendationEngine.get_similar_cases(db, equipment_type, model_spec, fault_desc)
+    cases = RecommendationEngine.get_similar_cases(db, equipment_type, model_spec, fault_desc, fault_part)
     return BaseResponse(data=[SimilarCaseItem(**c) for c in cases])
 
 @router.get("", response_model=BaseResponse[PageResult[FaultResponse]])
@@ -156,3 +160,34 @@ def close_fault(
     fault.closed_at = datetime.datetime.utcnow()
     db.commit()
     return BaseResponse(message="工单已正式验收归档关闭")
+
+@router.get("/export/faults", response_class=StreamingResponse)
+def export_faults(
+    current_user: User = Depends(get_current_user),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    faults = db.query(FaultRecord).filter(FaultRecord.is_deleted == False).order_by(FaultRecord.reported_at.desc()).all()
+    headers = ["故障编码", "故障标题", "故障描述", "故障系统", "故障部件", "严重级别", "状态", "上报时间", "根因分析", "解决步骤", "停机时间(分钟)", "是否精选案例"]
+    rows = []
+    for f in faults:
+        rows.append([
+            f.fault_code,
+            f.fault_title,
+            f.fault_desc,
+            f.fault_system,
+            f.fault_part,
+            f.severity_level,
+            f.status,
+            str(f.reported_at),
+            f.root_cause or "",
+            f.solution_steps or "",
+            f.downtime_minutes,
+            "是" if f.is_featured_case else "否"
+        ])
+    excel_data = ExcelProcessor.export_to_excel(headers, rows, sheet_name="故障明细")
+    return StreamingResponse(
+        io.BytesIO(excel_data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=fault_records.xlsx"}
+    )

@@ -1,7 +1,9 @@
 import datetime
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import io
 from app.core.database import get_db
 from app.models.user import User
 from app.models.maintenance import MaintenancePlan, MaintenancePlanItem, MaintenanceTask, InspectionRecord
@@ -16,6 +18,7 @@ from app.schemas.maintenance import (
 )
 from app.schemas.common import BaseResponse, PageResult
 from app.services.inspection_tx import InspectionAtomicService
+from app.services.excel_processor import ExcelProcessor
 from app.api.deps import get_current_user, require_role, check_fcp_status
 from app.core.exceptions import BusinessException
 
@@ -62,6 +65,7 @@ def create_plan(
         interval_hours=interval_hours,
         version_no="V1.0",
         sop_content=req.sop_content,
+        equipment_ids=req.equipment_ids or [],
         created_by=current_user.id
     )
     db.add(plan)
@@ -80,6 +84,57 @@ def create_plan(
 
     db.commit()
     return BaseResponse(data={"plan_id": plan.id}, message="维护计划及检查清单创建成功")
+
+@router.put("/plans/{plan_id}", response_model=BaseResponse)
+def update_plan(
+    plan_id: int,
+    req: MaintenancePlanCreateRequest,
+    current_user: User = Depends(require_role("ADMIN", "ENGINEER")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    plan = db.query(MaintenancePlan).filter(MaintenancePlan.id == plan_id, MaintenancePlan.is_deleted == False).first()
+    if not plan:
+        raise BusinessException(code=40001, message="维护计划不存在", status_code=404)
+
+    # 版本号自增: V1.0 -> V1.1
+    current_version = plan.version_no or "V1.0"
+    if current_version.startswith("V"):
+        parts = current_version[1:].split(".")
+        major = int(parts[0]) if len(parts) > 0 else 1
+        minor = int(parts[1]) if len(parts) > 1 else 0
+        new_version = f"V{major}.{minor + 1}"
+    else:
+        new_version = "V1.1"
+
+    interval_hours = req.interval_hours or (req.interval_days * 24 if req.interval_days else 720)
+    interval_days = max(1, interval_hours // 24)
+
+    plan.plan_code = req.plan_code
+    plan.plan_name = req.plan_name
+    plan.plan_type = req.plan_type
+    plan.interval_days = interval_days
+    plan.interval_hours = interval_hours
+    plan.version_no = new_version
+    plan.sop_content = req.sop_content
+    plan.equipment_ids = req.equipment_ids or []
+    plan.updated_by = current_user.id
+
+    # 删除旧清单项，重新写入
+    db.query(MaintenancePlanItem).filter(MaintenancePlanItem.plan_id == plan.id).delete()
+    for item_req in req.items:
+        item = MaintenancePlanItem(
+            plan_id=plan.id,
+            item_order=item_req.item_order,
+            check_item_name=item_req.check_item_name,
+            standard_benchmark=item_req.standard_benchmark,
+            guide_image_id=item_req.guide_image_id,
+            is_required=item_req.is_required
+        )
+        db.add(item)
+
+    db.commit()
+    return BaseResponse(data={"plan_id": plan.id, "version_no": new_version}, message=f"维护计划已更新，版本号升至 {new_version}")
 
 @router.get("/my-tasks", response_model=BaseResponse)
 def get_my_tasks(
@@ -189,3 +244,32 @@ def get_completion_rate(
             rate_percentage=overall_rate
         )
     ])
+
+@router.get("/export/maintenance-tasks", response_class=StreamingResponse)
+def export_maintenance_tasks(
+    current_user: User = Depends(get_current_user),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    tasks = db.query(MaintenanceTask).order_by(MaintenanceTask.due_date).all()
+    headers = ["工单编码", "设备编码", "设备名称", "计划日期", "截止日期", "状态", "是否超时", "技术员ID", "作业说明"]
+    rows = []
+    for t in tasks:
+        eq = db.query(Equipment).filter(Equipment.id == t.equipment_id).first()
+        rows.append([
+            t.task_code,
+            eq.equipment_code if eq else "",
+            eq.equipment_name if eq else "",
+            str(t.scheduled_date),
+            str(t.due_date),
+            t.status,
+            "是" if t.is_overdue else "否",
+            str(t.assigned_tech_id or ""),
+            t.work_order_notes or ""
+        ])
+    excel_data = ExcelProcessor.export_to_excel(headers, rows, sheet_name="维护工单明细")
+    return StreamingResponse(
+        io.BytesIO(excel_data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=maintenance_tasks.xlsx"}
+    )

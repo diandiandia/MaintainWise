@@ -124,8 +124,18 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="关联设备ID" required>
-              <el-input-number v-model="planForm.equipment_id" :min="1" style="width: 100%;" />
+            <el-form-item label="关联设备（工厂 → 部门 → 系统 → 设备）" required>
+              <el-cascader
+                v-model="planForm.selectedEquipmentPaths"
+                :options="equipmentTreeOptions"
+                :props="{ label: 'label', value: 'value', children: 'children', multiple: true, checkStrictly: false }"
+                placeholder="请选择设备，支持多选"
+                clearable
+                collapse-tags
+                collapse-tags-tooltip
+                style="width: 100%;"
+                @change="handleEquipmentSelect"
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -193,7 +203,8 @@ const savingPlan = ref(false);
 
 const planForm = reactive({
   plan_name: '',
-  equipment_id: 1,
+  equipment_ids: [] as number[],
+  selectedEquipmentPaths: [] as any[],
   interval_hours: 720,
   advance_notice_days: 3,
   items: [
@@ -201,6 +212,57 @@ const planForm = reactive({
     { item_order: 2, check_item_name: '叶轮动平衡与紧固件', standard_benchmark: '锁紧螺母防松铁丝完好，叶片无积灰偏重', is_required: true },
   ],
 });
+
+const equipmentTreeOptions = ref<any[]>([]);
+
+// 将位置树转换为 el-cascader 所需的格式
+const transformTreeForCascader = (nodes: any[]): any[] => {
+  return nodes.map((node: any) => {
+    const isEquipment = node.node_type === 'EQUIPMENT';
+    const transformed: any = {
+      value: isEquipment ? `eq_${node.equipment_id}` : `loc_${node.id}`,
+      label: node.location_name,
+      equipment_id: isEquipment ? node.equipment_id : undefined,
+    };
+    if (node.children && node.children.length > 0) {
+      transformed.children = transformTreeForCascader(node.children);
+    }
+    return transformed;
+  });
+};
+
+// 加载设备树（含设备节点）
+const fetchEquipmentTree = async () => {
+  try {
+    const res = await apiClient.get<any, any>('/locations/tree?include_equipments=true');
+    if (res.code === 200 && res.data) {
+      equipmentTreeOptions.value = transformTreeForCascader(res.data);
+    }
+  } catch (err) {
+    console.error('加载设备树失败:', err);
+  }
+};
+
+// 级联选择变化时，提取设备ID列表
+const handleEquipmentSelect = (values: any) => {
+  // values 是二维数组，如 [["loc_1", "loc_2", "loc_3", "eq_1"], ["loc_1", "loc_2", "loc_3", "eq_2"]]
+  // 提取每个路径的最后一个元素，即设备节点
+  const eqIds: number[] = [];
+  if (values && Array.isArray(values)) {
+    for (const path of values) {
+      if (Array.isArray(path) && path.length > 0) {
+        const last = path[path.length - 1];
+        if (typeof last === 'string' && last.startsWith('eq_')) {
+          const eqId = parseInt(last.replace('eq_', ''), 10);
+          if (!isNaN(eqId)) {
+            eqIds.push(eqId);
+          }
+        }
+      }
+    }
+  }
+  planForm.equipment_ids = eqIds;
+};
 
 const getIntervalUnit = (u?: string) => {
   switch (u) {
@@ -279,6 +341,16 @@ const handleBumpVersion = async (plan: any) => {
 };
 
 const openPlanDialog = () => {
+  planForm.plan_name = '';
+  planForm.equipment_ids = [];
+  planForm.selectedEquipmentPaths = [];
+  planForm.interval_hours = 720;
+  planForm.advance_notice_days = 3;
+  planForm.items = [
+    { item_order: 1, check_item_name: '轴承润滑油位与油质', standard_benchmark: '油位处于油标1/2至2/3处，无乳化', is_required: true },
+    { item_order: 2, check_item_name: '叶轮动平衡与紧固件', standard_benchmark: '锁紧螺母防松铁丝完好，叶片无积灰偏重', is_required: true },
+  ];
+  fetchEquipmentTree();
   planDialogVisible.value = true;
 };
 
@@ -287,9 +359,29 @@ const submitPlan = async () => {
     ElMessage.warning('请输入计划名称');
     return;
   }
+  if (!planForm.equipment_ids || planForm.equipment_ids.length === 0) {
+    ElMessage.warning('请至少选择一台关联设备');
+    return;
+  }
   savingPlan.value = true;
   try {
-    const res = await apiClient.post<any, any>('/maintenance/plans', planForm);
+    const payload = {
+      plan_name: planForm.plan_name,
+      plan_code: 'PLAN-' + Date.now(),
+      plan_type: 'MONTHLY',
+      interval_hours: planForm.interval_hours,
+      interval_days: Math.ceil(planForm.interval_hours / 24),
+      advance_notice_days: planForm.advance_notice_days,
+      sop_content: planForm.plan_name + ' 标准维护流程',
+      equipment_ids: planForm.equipment_ids,
+      items: planForm.items.map((it, idx) => ({
+        item_order: idx + 1,
+        check_item_name: it.check_item_name,
+        standard_benchmark: it.standard_benchmark,
+        is_required: it.is_required,
+      })),
+    };
+    const res = await apiClient.post<any, any>('/maintenance/plans', payload);
     if (res.code === 200) {
       ElMessage.success('维护计划编制成功');
       planDialogVisible.value = false;

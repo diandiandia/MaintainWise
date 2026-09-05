@@ -4,12 +4,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.exceptions import setup_exception_handlers
 from app.core.init_db import init_db
+from app.core.audit_middleware import AuditMiddleware
+from app.core.orm_audit_listener import setup_orm_audit_listeners
 from app.api.v1 import auth, users, locations, equipments, maintenance, faults, knowledge, training, dashboard, system
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 启动时执行数据库与种子数据自检
     init_db()
+
+    # 注册 ORM 审计自动注入监听器
+    setup_orm_audit_listeners()
 
     # 若启用了后台守护调度器 (Docker 生产环境)，启动后台定时任务
     scheduler = None
@@ -40,7 +45,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. 注册统一全局异常处理器
+# 2. 注册全局审计日志中间件
+app.add_middleware(AuditMiddleware)
+
+# 3. 注册统一全局异常处理器
 setup_exception_handlers(app)
 
 # 3. 挂载 API V1 子路由
@@ -89,4 +97,3 @@ if os.path.exists(_dist_dir):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
-

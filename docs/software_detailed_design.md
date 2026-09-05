@@ -312,7 +312,7 @@ class RecommendationEngine:
     
     @classmethod
     def get_similar_cases(
-        cls, db: Session, equipment_type: str, model_spec: str, fault_desc: str
+        cls, db: Session, equipment_type: str, model_spec: str, fault_desc: str, fault_part: str = ""
     ) -> List[Dict]:
         clean_text = fault_desc.strip().lower()
         if len(clean_text) < 3:
@@ -344,10 +344,15 @@ class RecommendationEngine:
             i_model = 1.0 if row.equipment_model.lower() == model_spec.lower() else (
                 0.5 if model_spec.lower() in row.equipment_model.lower() else 0.0
             )
+            i_part = 0.0
+            if fault_part and row.fault_system:
+                i_part = 1.0 if row.fault_system.lower() == fault_part.lower() else (
+                    0.5 if fault_part.lower() in row.fault_system.lower() else 0.0
+                )
             i_featured = 1.0 if row.is_featured else 0.0
             
-            # 算法权重公式
-            final_score = (0.50 * s_text) + (0.30 * i_model) + (0.20 * i_featured)
+            # 算法权重公式 (SWR-KB-004)
+            final_score = (0.50 * s_text) + (0.20 * i_model) + (0.20 * i_part) + (0.10 * i_featured)
             
             if final_score >= cls.SIMILARITY_THRESHOLD:
                 scored_results.append({

@@ -13,6 +13,7 @@ class MaintenancePlan(BaseAuditModel):
     version_no = Column(String(16), default="V1.0", nullable=False)
     sop_content = Column(Text, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    equipment_ids = Column(JSON, default=list, nullable=False) # 关联设备ID列表，支持多设备共用同一维护计划
 
 class MaintenancePlanItem(Base):
     __tablename__ = "maintenance_plan_items"

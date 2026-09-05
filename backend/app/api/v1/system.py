@@ -13,6 +13,38 @@ from app.services.email_service import EmailService
 from app.api.deps import require_role, get_current_user, check_fcp_status
 from app.core.exceptions import BusinessException
 
+MAGIC_NUMBERS = {
+    b"\xff\xd8\xff": "image/jpeg",
+    b"\x89PNG\r\n\x1a\n": "image/png",
+    b"GIF87a": "image/gif",
+    b"GIF89a": "image/gif",
+    b"RIFF": "image/webp",
+    b"%PDF": "application/pdf",
+    b"PK\x03\x04": "application/zip",
+}
+
+def validate_file_magic(contents: bytes, filename: str) -> str:
+    ext = os.path.splitext(filename)[1].lower()
+    ext_to_expected = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".pdf": "application/pdf",
+        ".zip": "application/zip",
+    }
+    if ext not in ext_to_expected:
+        return contents[:4].hex()[:8]
+    expected_mime = ext_to_expected[ext]
+    for magic, mime_type in MAGIC_NUMBERS.items():
+        if contents.startswith(magic) and mime_type == expected_mime:
+            return mime_type
+    raise BusinessException(
+        code=50003,
+        message=f"文件安全校验失败：上传文件后缀为 {ext}，但实际文件类型不匹配，禁止上传伪造后缀文件"
+    )
+
 router = APIRouter(prefix="/system", tags=["系统管理与支撑"])
 
 @router.get("/smtp/config", response_model=BaseResponse)
@@ -175,6 +207,9 @@ async def upload_file(
     contents = await file.read()
     if len(contents) > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
         raise BusinessException(code=50002, message=f"文件超过最大限制 {settings.MAX_UPLOAD_SIZE_MB}MB")
+
+    # 魔数校验：禁止伪造后缀文件上传
+    validated_mime = validate_file_magic(contents, filename)
 
     # 计算散列与唯一落盘路径
     file_hash = hashlib.sha256(contents).hexdigest()

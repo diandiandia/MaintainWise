@@ -9,7 +9,7 @@ class Location(BaseAuditModel):
     parent_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("equipment_locations.id"), nullable=True, index=True)
     location_name = Column(String(128), nullable=False)
     location_code = Column(String(64), unique=True, nullable=False, index=True)
-    level_depth = Column(Integer, nullable=False) # 1 to 5 (1: FACTORY, 2: DEPARTMENT, 3: SYSTEM)
+    level_depth = Column(Integer, nullable=False) # 1 to 3 (1: FACTORY, 2: DEPARTMENT, 3: SYSTEM)
     node_type = Column(String(32), default="SYSTEM", nullable=False) # FACTORY, DEPARTMENT, SYSTEM
     tree_path = Column(String(255), nullable=False, index=True) # e.g. /1/2/3/
     is_leaf = Column(Boolean, default=True, nullable=False)

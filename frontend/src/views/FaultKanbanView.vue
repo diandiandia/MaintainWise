@@ -352,7 +352,7 @@ const handleDescInput = () => {
     recommendLoading.value = true;
     try {
       const res = await apiClient.post<any, any>(
-        `/faults/recommend-similar?equipment_type=FAN&model_spec=Y4-73&fault_desc=${encodeURIComponent(reportForm.fault_desc)}`
+        `/faults/recommend-similar?equipment_type=FAN&model_spec=Y4-73&fault_desc=${encodeURIComponent(reportForm.fault_desc)}&fault_part=${encodeURIComponent(reportForm.fault_part)}`
       );
       if (res.code === 200 && res.data) {
         similarCases.value = res.data;

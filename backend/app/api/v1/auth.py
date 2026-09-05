@@ -9,6 +9,8 @@ from app.schemas.common import BaseResponse
 from app.core.exceptions import BusinessException
 from app.api.deps import get_current_user
 from app.core.redis import redis_client
+from app.services.email_service import EmailService
+import secrets
 
 router = APIRouter(prefix="/auth", tags=["身份认证与权限"])
 
@@ -34,6 +36,25 @@ def login(req: UserLoginRequest, db: Session = Depends(get_db)):
 
     if not user.is_active:
         raise BusinessException(code=10002, message="账户已被管理员禁用", status_code=403)
+
+    # 密码90天过期检查
+    if user.password_updated_at:
+        pwd_age = (now - user.password_updated_at.replace(tzinfo=timezone.utc)).days
+        if pwd_age > 90:
+            user.force_change_password = True
+            db.commit()
+            token = create_access_token({
+                "sub": str(user.id),
+                "username": user.username,
+                "role": user.role_code,
+                "work_type": user.work_type,
+                "fcp": True
+            })
+            return BaseResponse(data={
+                "access_token": token,
+                "token_type": "bearer",
+                "force_change_password": True
+            }, message="密码已超过90天有效期，请立即修改密码")
 
     # 登录成功，重置失败次数
     user.failed_login_attempts = 0
@@ -87,3 +108,36 @@ def get_me(current_user: User = Depends(get_current_user)):
         "work_type": current_user.work_type,
         "force_change_password": current_user.force_change_password
     })
+
+@router.post("/forgot-password", response_model=BaseResponse)
+def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == req.email, User.is_deleted == False, User.is_active == True).first()
+    if not user:
+        return BaseResponse(message="如果该邮箱已注册，重置密码链接已发送至您的邮箱")
+    token = secrets.token_urlsafe(32)
+    redis_client.setex(f"pwd_reset:{token}", 900, str(user.id))
+    EmailService.send_email(
+        to_email=user.email,
+        subject="MaintainWise 密码重置",
+        content=f"尊敬的用户 {user.full_name}：\n\n点击下方链接重置密码（有效期15分钟）：\n\n重置链接：http://localhost:3000/reset-password?token={token}\n\n若非您本人操作，请忽略此邮件。",
+        is_html=False,
+        db=db
+    )
+    return BaseResponse(message="如果该邮箱已注册，重置密码链接已发送至您的邮箱")
+
+@router.post("/reset-password", response_model=BaseResponse)
+def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
+    user_id_str = redis_client.get(f"pwd_reset:{req.token}")
+    if not user_id_str:
+        raise BusinessException(code=10005, message="重置链接已过期或无效，请重新申请", status_code=400)
+    user = db.query(User).filter(User.id == int(user_id_str), User.is_deleted == False).first()
+    if not user:
+        raise BusinessException(code=10005, message="用户不存在或已被禁用", status_code=400)
+    user.password_hash = hash_password(req.new_password)
+    user.password_updated_at = datetime.now(timezone.utc)
+    user.force_change_password = False
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    db.commit()
+    redis_client.delete(f"pwd_reset:{req.token}")
+    return BaseResponse(message="密码重置成功，请使用新密码登录")

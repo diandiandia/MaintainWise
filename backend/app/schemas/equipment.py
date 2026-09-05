@@ -70,6 +70,8 @@ class EquipmentResponse(BaseModel):
     status: str
     created_at: datetime
     params: Optional[Dict[str, Any]] = None
+    location_path: Optional[str] = None
+    location_name_display: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
