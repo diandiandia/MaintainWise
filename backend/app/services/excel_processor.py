@@ -26,3 +26,8 @@ class ExcelProcessor:
                 item = {headers[i]: row[i] for i in range(len(headers)) if i < len(row)}
                 data.append(item)
         return data
+        
+    @staticmethod
+    def generate_equipment_template() -> bytes:
+        headers = ["设备编码*", "设备名称*", "设备类型*", "工种*", "位置编码*", "规格型号*", "保养周期(天)"]
+        return ExcelProcessor.export_to_excel(headers, [], sheet_name="设备导入模板")

@@ -19,8 +19,12 @@ class InMemoryRedisMock:
             return None
         return self._store.get(key)
 
-    def set(self, key: str, value: str):
+    def set(self, key: str, value: str, ex: Optional[int] = None):
         self._store[key] = str(value)
+        if ex is not None:
+            self._expire[key] = time.time() + ex
+        else:
+            self._expire.pop(key, None)
 
     def setex(self, key: str, time_sec: int, value: str):
         self._store[key] = str(value)
