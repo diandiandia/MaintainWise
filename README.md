@@ -55,6 +55,19 @@ pytest -v backend/tests/test_services.py          # 领域状态机与并发锁�
 make test-frontend
 ```
 
+### 1.4 Linux 宿主机原生一键生产常驻部署
+```bash
+# 1. 一键安装依赖并构建前端静态资源
+bash deploy/scripts/deploy_linux.sh install
+
+# 2. 一键以后台守护进程方式常驻启动 (单端口8000同时提供前端界面与后端API)
+make deploy-linux
+
+# 3. 查看状态或停止服务
+make status-linux
+make stop-linux
+```
+
 ---
 
 ## 🐳 2. Docker 容器化集群一键部署指南 (Docker Production)
@@ -106,6 +119,7 @@ make backup        # 执行全自动数据库与附件压缩备份
 
 1. **[50项系统需求规范说明书 (SRS)](docs/system_requirements_specification.md)**
 2. **[软件详细设计说明书 (SDD)](docs/software_detailed_design.md)**
-3. **[Docker 部署与运维实战指南](docs/docker_deployment_guide.md)**
-4. **[三轮工程反省与设计溯源报告](docs/requirements_reflection_audit.md)**
-5. **[项目全量交付总报告](project_delivery_walkthrough.md)**
+3. **[全场景部署与运维实战指南 (Linux/Docker)](docs/system_deployment_guide.md)**
+4. **[Docker 容器化专项部署指南](docs/docker_deployment_guide.md)**
+5. **[三轮工程反省与设计溯源报告](docs/requirements_reflection_audit.md)**
+6. **[项目全量交付总报告](project_delivery_walkthrough.md)**
