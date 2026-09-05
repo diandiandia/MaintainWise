@@ -327,6 +327,21 @@ CREATE TABLE IF NOT EXISTS maintenance_notify_logs (
     UNIQUE (equipment_id, target_notify_date, notify_stage, recipient_email)
 );
 
+-- 17. 系统 SMTP 邮件服务器配置表 (SWR-SYS-001)
+CREATE TABLE IF NOT EXISTS sys_smtp_configs (
+    id BIGSERIAL PRIMARY KEY,
+    smtp_host VARCHAR(128) NOT NULL,
+    smtp_port INT NOT NULL DEFAULT 465,
+    smtp_user VARCHAR(128) NOT NULL,
+    smtp_pass VARCHAR(255) NOT NULL,
+    sender_name VARCHAR(64) NOT NULL DEFAULT 'MaintainWise 智能运维中心',
+    use_ssl BOOLEAN NOT NULL DEFAULT TRUE,
+    use_tls BOOLEAN NOT NULL DEFAULT FALSE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by BIGINT REFERENCES sys_users(id)
+);
+
 -- ==============================================================================
 -- 种子数据初始化 (Seed Data)
 -- ==============================================================================
@@ -356,6 +371,13 @@ VALUES
 (0, TRUE, 'ALL')
 ON CONFLICT (lead_days) DO NOTHING;
 
+-- 4. 默认 SMTP 邮件服务器配置 (SWR-SYS-001)
+INSERT INTO sys_smtp_configs (id, smtp_host, smtp_port, smtp_user, smtp_pass, sender_name, use_ssl, use_tls, is_active)
+VALUES 
+(1, 'smtp.maintainwise.com', 465, 'noreply@maintainwise.com', 'InitialSmtpAuth2026', 'MaintainWise 智能运维中心', TRUE, FALSE, TRUE)
+ON CONFLICT (id) DO NOTHING;
+
 -- 序列号重置
 SELECT setval('equipment_locations_id_seq', (SELECT MAX(id) FROM equipment_locations));
 SELECT setval('sys_users_id_seq', (SELECT MAX(id) FROM sys_users));
+SELECT setval('sys_smtp_configs_id_seq', (SELECT MAX(id) FROM sys_smtp_configs));
