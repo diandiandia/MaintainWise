@@ -59,6 +59,8 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       UPLOAD_DIR: /app/uploads
       MAX_UPLOAD_SIZE_MB: 50
+      RUN_MODE: docker_production
+      RUN_BACKGROUND_SCHEDULER: "true"
       TZ: Asia/Shanghai
     volumes:
       - uploads:/app/uploads

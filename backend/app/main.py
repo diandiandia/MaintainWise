@@ -10,7 +10,17 @@ from app.api.v1 import auth, users, locations, equipments, maintenance, faults, 
 async def lifespan(app: FastAPI):
     # 启动时执行数据库与种子数据自检
     init_db()
+
+    # 若启用了后台守护调度器 (Docker 生产环境)，启动后台定时任务
+    scheduler = None
+    if settings.RUN_BACKGROUND_SCHEDULER:
+        from app.tasks.scheduler import start_background_scheduler
+        scheduler = start_background_scheduler()
+
     yield
+
+    if scheduler:
+        scheduler.stop()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

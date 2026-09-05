@@ -178,4 +178,40 @@ tar -xzf /root/MaintainWise/backups/maintainwise_uploads_YYYYMMDD_HHMMSS.tar.gz 
 3. 执行 `docker compose restart gateway` 即可无缝切换为 HTTPS。
 
 ---
-*(本文档为 MaintainWise 系统在工业车间现场快速投产交付的标准操作手册)*
+
+## 8. 开发测试与生产部署双模运行规范 (Dual-Mode Specification)
+
+MaintainWise 采用高度解耦的**双模运行体系**，明确区分「Linux 宿主机本地直接测试」与「Docker 容器化生产部署」：
+
+### 8.1 运行模式与环境对照表
+
+| 维度 | Linux 宿主机本地直接测试 (`linux_local`) | Docker 容器集群生产部署 (`docker_production`) |
+|:---|:---|:---|
+| **适用阶段** | 本地敏捷开发、CI 流水线、全量自动化测试 | 车间生产交付、云端集群部署、长时间稳定运行 |
+| **基础设施要求** | 仅需基础 Python 3.10+ 与 Node 18+，**零外部依赖** | Docker Engine 24.0+ 与 Docker Compose V2+ |
+| **数据库实现** | SQLite 本地轻量存储或内存库 (`maintainwise.db` / `:memory:`) | PostgreSQL 16 独立容器（持久化卷、启用 `pg_trgm` 向量全文检索） |
+| **缓存与消息** | 本地内存 MockRedis 引擎（自动降级兜底） | Redis 7 独立容器（AOF 持久化、密码强保护） |
+| **文件存储** | 动态解析当前项目根目录下的 `uploads/` | 容器映射目录 `/app/uploads`（Nginx 网关反代托管、50MB限制） |
+| **后台定时任务** | 纯净按需调用，不开启守护循环，防止阻塞测试 | 自动拉起后台守护调度线程（巡检倒计时、SLA 告警、孤儿文件清理） |
+| **执行命令** | `make test` 或 `bash deploy/scripts/test_local.sh` | `make deploy` 或 `bash deploy/scripts/deploy.sh` |
+
+### 8.2 Linux 宿主机直接测试最佳实践
+直接在 Linux 终端执行测试时，无需提前启动 Docker 服务，后端核心配置通过 `app/core/config.py` 自动计算相对路径并回退到零外部依赖模式：
+```bash
+# 1. 运行全量测试套件 (包含 28 个后端用例与前端生产打包)
+make test
+
+# 2. 仅运行指定专项测试
+pytest -v backend/tests/test_e2e_integration.py
+```
+
+### 8.3 Docker 生产环境一键发布与交付
+当代码在 Linux 宿主机通过所有测试用例后，交付部署只需一键拉起容器集群：
+```bash
+cp .env.example .env
+make deploy
+```
+
+---
+*(本文档为 MaintainWise 系统在工业车间现场快速投产交付与开发测试的标准操作手册)*
+
