@@ -1,12 +1,15 @@
-# Python
+# ==============================================================================
+# MaintainWise — Git Ignore Configuration (Full Stack Project)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Python & FastAPI Backend
+# ------------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-venv/
-.venv/
 build/
 develop-eggs/
 dist/
@@ -22,41 +25,77 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+venv/
+.venv/
+env/
+ENV/
 
 # Testing & Coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
 .tox/
 .nox/
+.mypy_cache/
+.ruff_cache/
 
-# Node / Frontend
+# ------------------------------------------------------------------------------
+# 2. Node.js & Vue 3 Frontend
+# ------------------------------------------------------------------------------
 node_modules/
+frontend/node_modules/
+dist/
+dist-ssr/
+frontend/dist/
+frontend/dist-ssr/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-dist/
-dist-ssr/
-*.local
+.eslintcache
+*.tsbuildinfo
 
-# Environment & Secrets
-.env
-.env.local
+# ------------------------------------------------------------------------------
+# 3. Databases, Volumes & Runtime State
+# ------------------------------------------------------------------------------
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+maintainwise.db
+pgdata/
+redisdata/
 
-# Backups & Uploads
-backups/
-uploads/
+# ------------------------------------------------------------------------------
+# 4. Uploads, Backups & User Assets
+# ------------------------------------------------------------------------------
+uploads/*
+!uploads/.gitkeep
+backups/*
+!backups/.gitkeep
 *.tar.gz
 *.sql.gz
 
-# IDE
+# ------------------------------------------------------------------------------
+# 5. Environment & Sensitive Credentials
+# ------------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+deploy/nginx/ssl/*.crt
+deploy/nginx/ssl/*.key
+deploy/nginx/ssl/*.pem
+!deploy/nginx/ssl/.gitkeep
+
+# ------------------------------------------------------------------------------
+# 6. IDE, Editors & OS Files
+# ------------------------------------------------------------------------------
 .idea/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 *.swp
 *.swo
-
-# OS
+*~
 .DS_Store
 Thumbs.db
-*.db
