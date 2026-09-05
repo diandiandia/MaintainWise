@@ -30,11 +30,6 @@
             <el-tag :type="getRoleTag(row.role_code)">{{ row.role_code }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="work_type" label="专业工种" width="150">
-          <template #default="{ row }">
-            <el-tag type="info">{{ row.work_type }}</el-tag>
-          </template>
-        </el-table-column>
         <el-table-column prop="email" label="邮箱" min-width="160" />
         <el-table-column prop="force_change_password" label="改密限制" width="120">
           <template #default="{ row }">
@@ -98,22 +93,12 @@
         </el-row>
 
         <el-row :gutter="16">
-          <el-col :span="12">
+          <el-col :span="24">
             <el-form-item label="角色授权 (RBAC)" prop="role_code">
               <el-select v-model="form.role_code" style="width: 100%;">
                 <el-option label="技术员 (TECHNICIAN)" value="TECHNICIAN" />
                 <el-option label="工程师 (ENGINEER)" value="ENGINEER" />
                 <el-option label="管理员 (ADMIN)" value="ADMIN" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="责任工种 (数据隔离)" prop="work_type">
-              <el-select v-model="form.work_type" style="width: 100%;">
-                <el-option label="机械工 (MECHANICAL)" value="MECHANICAL" />
-                <el-option label="电气工 (ELECTRICAL)" value="ELECTRICAL" />
-                <el-option label="自动化仪表 (INSTRUMENTATION)" value="INSTRUMENTATION" />
-                <el-option label="通用全工种 (GENERAL)" value="GENERAL" />
               </el-select>
             </el-form-item>
           </el-col>
