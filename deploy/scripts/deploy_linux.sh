@@ -193,7 +193,7 @@ do_stop() {
     if ! get_status; then
         echo "ℹ️  MaintainWise 当前未在运行。"
         rm -f "$PID_FILE"
-        exit 0
+        return 0
     fi
 
     PID=$(cat "$PID_FILE")
