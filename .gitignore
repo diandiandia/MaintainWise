@@ -66,6 +66,8 @@ pnpm-debug.log*
 maintainwise.db
 pgdata/
 redisdata/
+logs/
+*.pid
 
 # ------------------------------------------------------------------------------
 # 4. Uploads, Backups & User Assets

@@ -60,6 +60,33 @@ app.include_router(system.router, prefix=settings.API_V1_STR)
 def health_check():
     return {"status": "ok", "project": settings.PROJECT_NAME, "version": settings.VERSION}
 
+# 5. 挂载静态上传文件目录
+import os
+from fastapi.staticfiles import StaticFiles
+from starlette.responses import FileResponse
+
+os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+if os.path.exists(settings.UPLOAD_DIR):
+    app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+
+# 6. 若存在前端生产构建产物 (frontend/dist)，一并挂载并支持 SPA 前端路由单端口直出
+_dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../frontend/dist"))
+if os.path.exists(_dist_dir):
+    _assets_dir = os.path.join(_dist_dir, "assets")
+    if os.path.exists(_assets_dir):
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        if full_path.startswith("api/") or full_path == "healthz":
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not Found")
+        target_file = os.path.join(_dist_dir, full_path)
+        if full_path and os.path.isfile(target_file):
+            return FileResponse(target_file)
+        return FileResponse(os.path.join(_dist_dir, "index.html"))
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+
