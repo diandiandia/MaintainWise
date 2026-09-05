@@ -1,0 +1,98 @@
+/* 工控平板触控与无障碍适配样式 (SWR-NFR-005) */
+:root {
+  --touch-min-height: 48px;
+  --touch-margin: 16px;
+  --touch-font-size: 16px;
+  --color-success-bg: #e1f3d8;
+  --color-success-border: #67c23a;
+  --color-danger-bg: #fde2e2;
+  --color-danger-border: #f56c6c;
+}
+
+/* 保证所有可点击目标满足至少 48px 热区 */
+.touch-target {
+  min-height: var(--touch-min-height) !important;
+  min-width: var(--touch-min-height) !important;
+  padding: 12px 20px !important;
+  font-size: var(--touch-font-size) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  touch-action: manipulation;
+  cursor: pointer;
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+
+/* 巡检打卡大色块单选卡片 */
+.touch-judge-group {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+}
+
+.touch-judge-btn {
+  flex: 1;
+  height: 64px;
+  font-size: 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 2px solid #dcdfe6;
+  background-color: #f5f7fa;
+  color: #606266;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.touch-judge-btn:active {
+  transform: scale(0.98);
+}
+
+.touch-judge-btn.pass.active {
+  background-color: var(--color-success-bg);
+  border-color: var(--color-success-border);
+  color: #67c23a;
+  box-shadow: 0 4px 12px rgba(103, 194, 58, 0.2);
+}
+
+.touch-judge-btn.fail.active {
+  background-color: var(--color-danger-bg);
+  border-color: var(--color-danger-border);
+  color: #f56c6c;
+  box-shadow: 0 4px 12px rgba(245, 108, 108, 0.2);
+}
+
+/* 现场异常强制照片浮层与高亮指示 */
+.anomaly-required-section {
+  margin-top: 16px;
+  padding: 16px;
+  background-color: #fffaf0;
+  border: 2px dashed #e6a23c;
+  border-radius: 8px;
+  animation: pulse-border 1.5s infinite;
+}
+
+@keyframes pulse-border {
+  0% { border-color: #e6a23c; }
+  50% { border-color: #f56c6c; }
+  100% { border-color: #e6a23c; }
+}
+
+/* 全局布局重置 */
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f0f2f5;
+  color: #303133;
+}
+
+* {
+  box-sizing: border-box;
+}
