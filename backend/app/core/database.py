@@ -2,12 +2,24 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.core.config import settings
 
+import urllib.parse
+
+db_url = settings.DATABASE_URL
+if (db_url.startswith("postgresql://") or db_url.startswith("postgres://")) and "@" in db_url:
+    prefix, sep, rest = db_url.partition("://")
+    auth, _, host_db = rest.rpartition("@")
+    if ":" in auth:
+        user, _, passwd = auth.partition(":")
+        if "%" not in passwd:
+            passwd = urllib.parse.quote_plus(passwd)
+        db_url = f"{prefix}://{user}:{passwd}@{host_db}"
+
 connect_args = {}
-if settings.DATABASE_URL.startswith("sqlite"):
+if db_url.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 
 engine = create_engine(
-    settings.DATABASE_URL,
+    db_url,
     connect_args=connect_args,
     pool_pre_ping=True
 )

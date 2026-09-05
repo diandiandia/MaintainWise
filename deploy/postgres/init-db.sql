@@ -123,10 +123,12 @@ CREATE TABLE IF NOT EXISTS equipment_files (
     file_size_bytes BIGINT NOT NULL,
     mime_type VARCHAR(128) NOT NULL,
     file_sha256 VARCHAR(64) NOT NULL,
+    is_linked BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     created_by BIGINT REFERENCES sys_users(id)
 );
 CREATE INDEX IF NOT EXISTS idx_files_eq_tag ON equipment_files(equipment_id, file_tag);
+CREATE INDEX IF NOT EXISTS idx_files_is_linked ON equipment_files(is_linked);
 
 -- 8. 维护计划与 SOP 表 (maintenance_plans)
 CREATE TABLE IF NOT EXISTS maintenance_plans (
@@ -350,7 +352,7 @@ CREATE TABLE IF NOT EXISTS sys_smtp_configs (
 -- bcrypt hash cost 12: $2b$12$K8qN5dEw.3zQ5fHhF09uNuW8jCgP0Gg2pU6xZk3eE1lQo4qE5fHhe (示例)
 INSERT INTO sys_users (username, password_hash, full_name, employee_no, email, phone, role_code, work_type, is_active, force_change_password)
 VALUES 
-('admin', '$2b$12$dE7Q5NkWG8eZ0oV1cE4y0eUoW6aF2xHkQ8mJ6pY4wL1eR9tP5uI3.', '系统超级管理员', 'EMP-ADMIN-001', 'admin@factory.com', '13800000000', 'ADMIN', 'GENERAL', TRUE, TRUE)
+('admin', '$2b$12$mogIHk0bHVz1ZXKSdSNLOOqYra.SPoxk5Sc0gMPREPI/mkOqJGEhK', '系统超级管理员', 'EMP-ADMIN-001', 'admin@factory.com', '13800000000', 'ADMIN', 'GENERAL', TRUE, TRUE)
 ON CONFLICT (username) DO NOTHING;
 
 -- 2. 默认5级位置分类树节点

@@ -8,7 +8,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-maintainwise}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-MaintainWise@2026!}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-MaintainWisePg2026}
       POSTGRES_DB: ${POSTGRES_DB:-maintainwise_db}
       TZ: Asia/Shanghai
     volumes:
@@ -53,7 +53,7 @@ services:
     container_name: maintainwise-backend
     restart: always
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-maintainwise}:${POSTGRES_PASSWORD:-MaintainWise@2026!}@postgres:5432/${POSTGRES_DB:-maintainwise_db}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-maintainwise}:${POSTGRES_PASSWORD:-MaintainWisePg2026}@postgres:5432/${POSTGRES_DB:-maintainwise_db}
       REDIS_URL: redis://:${REDIS_PASSWORD:-MaintainWiseRedis2026}@redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-maintainwise_super_secret_jwt_key_2026_change_me}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
