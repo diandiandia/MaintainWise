@@ -6,7 +6,7 @@
         <p>支持典型真实案例课程挂接、考核考评闭环及复训触发 (SWR-TRN-001/002/004/005)</p>
       </div>
       <div class="header-actions">
-        <el-button type="primary" :icon="Plus" @click="openCreateCourseDialog">编制实操新课程</el-button>
+        <el-button v-permission="['ADMIN', 'ENGINEER']" type="primary" :icon="Plus" @click="openCreateCourseDialog">编制实操新课程</el-button>
       </div>
     </div>
 

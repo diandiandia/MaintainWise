@@ -7,7 +7,7 @@
       </div>
       <div class="header-actions">
         <el-button :icon="Download" @click="exportExcel">导出知识手册</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreateDialog">录入知识条目</el-button>
+        <el-button v-permission="['ADMIN', 'ENGINEER']" type="primary" :icon="Plus" @click="openCreateDialog">录入知识条目</el-button>
       </div>
     </div>
 

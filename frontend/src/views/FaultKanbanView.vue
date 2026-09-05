@@ -42,6 +42,7 @@
             </div>
             <div class="card-footer">
               <el-button
+                v-permission="['ADMIN', 'ENGINEER']"
                 type="primary"
                 size="small"
                 class="touch-target-sm"
@@ -82,6 +83,7 @@
             </div>
             <div class="card-footer">
               <el-button
+                v-permission="['ADMIN', 'ENGINEER']"
                 type="success"
                 size="small"
                 @click="openResolveDialog(item)"
@@ -120,6 +122,7 @@
             </div>
             <div class="card-footer">
               <el-button
+                v-permission="['ADMIN', 'ENGINEER']"
                 type="primary"
                 plain
                 size="small"

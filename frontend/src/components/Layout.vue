@@ -50,7 +50,7 @@
           <span>技能实训与档案</span>
         </el-menu-item>
 
-        <el-menu-item v-if="authStore.isSupervisor" index="/users">
+        <el-menu-item v-if="authStore.isAdmin" index="/users">
           <el-icon><UserFilled /></el-icon>
           <span>用户与班组管理</span>
         </el-menu-item>

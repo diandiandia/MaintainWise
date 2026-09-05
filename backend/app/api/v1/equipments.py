@@ -169,3 +169,17 @@ def export_equipments_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=equipments.xlsx"}
     )
+
+@router.delete("/{eq_id}", response_model=BaseResponse)
+def delete_equipment(
+    eq_id: int,
+    current_user: User = Depends(require_role("ADMIN", "ENGINEER")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    eq = db.query(Equipment).filter(Equipment.id == eq_id, Equipment.is_deleted == False).first()
+    if not eq:
+        raise BusinessException(code=40001, message="设备不存在", status_code=404)
+    eq.is_deleted = True
+    db.commit()
+    return BaseResponse(message="设备已安全软删除")

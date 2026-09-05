@@ -20,8 +20,19 @@ export const useAuthStore = defineStore('auth', {
   getters: {
     isAuthenticated: (state) => !!state.token,
     isAdmin: (state) => state.userInfo?.role_code === 'ADMIN',
-    isSupervisor: (state) => ['ADMIN', 'SUPERVISOR'].includes(state.userInfo?.role_code || ''),
+    isEngineer: (state) => state.userInfo?.role_code === 'ENGINEER',
+    isSupervisor: (state) => state.userInfo?.role_code === 'SUPERVISOR',
     isTechnician: (state) => state.userInfo?.role_code === 'TECHNICIAN',
+    canManageUsers: (state) => state.userInfo?.role_code === 'ADMIN',
+    canManageEquipments: (state) => ['ADMIN', 'ENGINEER'].includes(state.userInfo?.role_code || ''),
+    canManagePlans: (state) => ['ADMIN', 'ENGINEER'].includes(state.userInfo?.role_code || ''),
+    canManageCourses: (state) => ['ADMIN', 'ENGINEER'].includes(state.userInfo?.role_code || ''),
+    hasRole: (state) => (roles: string | string[]) => {
+      const currentRole = state.userInfo?.role_code;
+      if (!currentRole) return false;
+      const roleList = Array.isArray(roles) ? roles : [roles];
+      return roleList.includes(currentRole);
+    },
     needsPasswordChange: (state) => state.userInfo?.force_change_password === true,
   },
   actions: {

@@ -76,8 +76,8 @@
             </div>
 
             <div class="action-buttons">
-              <el-button type="primary" :icon="Plus" @click="openCreateDialog">录入设备</el-button>
-              <el-button :icon="Download" @click="exportExcel">导出Excel</el-button>
+              <el-button v-permission="['ADMIN', 'ENGINEER']" type="primary" :icon="Plus" @click="openCreateDialog">录入设备</el-button>
+              <el-button v-permission="['ADMIN', 'ENGINEER']" :icon="Download" @click="exportExcel">导出Excel</el-button>
             </div>
           </div>
 
@@ -133,6 +133,7 @@
                   电子履历
                 </el-button>
                 <el-button
+                  v-permission="['ADMIN', 'ENGINEER']"
                   type="danger"
                   link
                   size="small"

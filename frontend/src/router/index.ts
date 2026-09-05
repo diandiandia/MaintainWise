@@ -70,7 +70,7 @@ const routes: RouteRecordRaw[] = [
         path: 'users',
         name: 'Users',
         component: UserManagementView,
-        meta: { roles: ['ADMIN', 'SUPERVISOR'] },
+        meta: { roles: ['ADMIN'] },
       },
       {
         path: 'system',

@@ -7,7 +7,7 @@
       </div>
       <div class="header-actions">
         <el-button :icon="Download" @click="exportInspectionReport">导出全量巡检报表</el-button>
-        <el-button type="primary" :icon="Plus" @click="openPlanDialog">编制新维护计划</el-button>
+        <el-button v-permission="['ADMIN', 'ENGINEER']" type="primary" :icon="Plus" @click="openPlanDialog">编制新维护计划</el-button>
       </div>
     </div>
 
@@ -44,6 +44,7 @@
             <el-table-column label="操作" width="160" fixed="right">
               <template #default="{ row }">
                 <el-button
+                  v-permission="['ADMIN', 'ENGINEER']"
                   type="primary"
                   link
                   size="small"
