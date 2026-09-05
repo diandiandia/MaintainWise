@@ -19,9 +19,13 @@ if ! command -v python3 &> /dev/null; then
 fi
 echo "🐍 Python 版本: $(python3 --version)"
 
-# 2. 检查 Pytest
-if ! command -v pytest &> /dev/null; then
-    echo "❌ 错误: 未检测到 pytest，请运行: pip install -r backend/requirements.txt"
+VENV_PYTEST="$PROJECT_ROOT/.venv/bin/pytest"
+if [ -f "$VENV_PYTEST" ]; then
+    PYTEST_BIN="$VENV_PYTEST"
+elif command -v pytest &> /dev/null; then
+    PYTEST_BIN="pytest"
+else
+    echo "❌ 错误: 未检测到 pytest，请运行: bash deploy/scripts/deploy_linux.sh install"
     exit 1
 fi
 
@@ -30,7 +34,7 @@ echo ""
 echo "----------------------------------------------------------------------"
 echo "▶ 1/2 运行后端全量测试套件 (FastAPI / SQLAlchemy / 业务状态机 / E2E)..."
 echo "----------------------------------------------------------------------"
-pytest -v backend/tests/
+"$PYTEST_BIN" -v backend/tests/
 
 # 4. 检查 Node.js / npm 环境
 echo ""

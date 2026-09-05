@@ -12,6 +12,7 @@ APP_PORT="${2:-8000}"
 PID_FILE="$PROJECT_ROOT/maintainwise.pid"
 LOG_DIR="$PROJECT_ROOT/logs"
 LOG_FILE="$LOG_DIR/maintainwise.log"
+VENV_DIR="$PROJECT_ROOT/.venv"
 
 mkdir -p uploads "$LOG_DIR"
 
@@ -21,6 +22,26 @@ print_banner() {
     echo "======================================================================"
 }
 
+get_python_bin() {
+    if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/python3" ] && [ -f "$VENV_DIR/bin/pip" ]; then
+        echo "$VENV_DIR/bin/python3"
+    elif [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/python" ] && [ -f "$VENV_DIR/bin/pip" ]; then
+        echo "$VENV_DIR/bin/python"
+    else
+        which python3 2>/dev/null || echo "python3"
+    fi
+}
+
+get_pip_bin() {
+    if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/pip" ]; then
+        echo "$VENV_DIR/bin/pip"
+    elif [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/pip3" ]; then
+        echo "$VENV_DIR/bin/pip3"
+    else
+        which pip3 2>/dev/null || which pip 2>/dev/null || echo "pip"
+    fi
+}
+
 # 1. 安装系统依赖并编译前端生产产物
 do_install() {
     print_banner
@@ -28,10 +49,29 @@ do_install() {
 
     # 检查 Python
     if ! command -v python3 &> /dev/null; then
-        echo "❌ 错误: 未检测到 Python 3，请先安装 Python 3.10+ (如 apt install python3 / yum install python3)"
+        echo "❌ 错误: 未检测到 Python 3，请先安装 Python 3.10+ (如 apt install -y python3 python3-pip python3-venv)"
         exit 1
     fi
     echo "✅ 检测到 Python: $(python3 --version)"
+
+    # 检查/配置 Python 虚拟环境 (针对 Ubuntu 24.04+/26.04+ 及 Debian 12+ PEP 668 externally-managed-environment 限制)
+    echo "🐍 正在配置 Python 运行环境..."
+    USE_VENV=false
+    if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/pip" ]; then
+        USE_VENV=true
+        echo "✅ 检测到已就绪的 Python 虚拟环境: $VENV_DIR"
+    else
+        rm -rf "$VENV_DIR"
+        echo "   正在尝试创建独立虚拟环境: $VENV_DIR ..."
+        if python3 -m venv "$VENV_DIR" 2>/dev/null && [ -f "$VENV_DIR/bin/pip" ]; then
+            USE_VENV=true
+            echo "✅ Python 独立虚拟环境创建成功: $VENV_DIR"
+        else
+            rm -rf "$VENV_DIR" # 立即清理残缺的虚拟环境目录，防止混淆 Python 解释器
+            echo "ℹ️  未检测到完整 python3-venv 模块，将使用系统环境兼容模式。"
+            echo "💡 提示: 若需使用标准隔离虚拟环境，可执行: sudo apt update && sudo apt install -y python3-venv"
+        fi
+    fi
 
     # 检查 Node.js 与 npm
     if ! command -v npm &> /dev/null; then
@@ -42,7 +82,17 @@ do_install() {
 
     # 安装后端依赖
     echo "📥 1/3 正在安装后端 Python 依赖..."
-    pip3 install -r backend/requirements.txt --quiet || pip install -r backend/requirements.txt --quiet
+    if [ "$USE_VENV" = true ] && [ -f "$VENV_DIR/bin/pip" ]; then
+        echo "   使用虚拟环境 pip: $VENV_DIR/bin/pip"
+        "$VENV_DIR/bin/pip" install --upgrade pip --quiet 2>/dev/null || true
+        "$VENV_DIR/bin/pip" install -r backend/requirements.txt
+    else
+        echo "   使用系统 pip 安装 (兼容 PEP 668)..."
+        pip3 install -r backend/requirements.txt --break-system-packages 2>/dev/null || \
+        pip install -r backend/requirements.txt --break-system-packages 2>/dev/null || \
+        pip3 install -r backend/requirements.txt --quiet || \
+        pip install -r backend/requirements.txt --quiet
+    fi
 
     # 安装前端依赖
     echo "📥 2/3 正在安装前端 Node.js 依赖..."
@@ -54,7 +104,8 @@ do_install() {
 
     # 初始化数据库表结构与种子数据
     echo "🗄️ 正在初始化数据库结构与初始管理员账号..."
-    PYTHONPATH=backend python3 backend/app/core/init_db.py
+    PYTHON_EXEC=$(get_python_bin)
+    PYTHONPATH=backend "$PYTHON_EXEC" backend/app/core/init_db.py
 
     echo "======================================================================"
     echo "🎉 MaintainWise 基础运行环境与前端生产构建已就绪！"
@@ -89,11 +140,13 @@ do_start() {
         npm run build --prefix frontend
     fi
 
+    PYTHON_EXEC=$(get_python_bin)
     echo "🚀 正在以后台常驻进程方式启动 MaintainWise (单端口直出 Web & API)..."
     echo "📌 服务监听端口: $APP_PORT"
     echo "📄 运行日志路径: $LOG_FILE"
+    echo "🐍 运行时 Python: $PYTHON_EXEC"
 
-    setsid python3 -m uvicorn app.main:app \
+    setsid "$PYTHON_EXEC" -m uvicorn app.main:app \
         --app-dir backend \
         --host 0.0.0.0 \
         --port "$APP_PORT" \
@@ -200,7 +253,7 @@ do_systemd() {
     print_banner
     SERVICE_FILE="/etc/systemd/system/maintainwise.service"
     CURRENT_USER=$(whoami)
-    PYTHON_PATH=$(which python3)
+    PYTHON_PATH=$(get_python_bin)
 
     echo "⚙️  正在生成 systemd 服务单元配置: $SERVICE_FILE"
     cat <<EOF | sudo tee "$SERVICE_FILE" > /dev/null

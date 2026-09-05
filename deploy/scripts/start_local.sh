@@ -36,8 +36,15 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM EXIT
 
+VENV_PYTHON="$PROJECT_ROOT/.venv/bin/python3"
+if [ -f "$VENV_PYTHON" ]; then
+    PYTHON_BIN="$VENV_PYTHON"
+else
+    PYTHON_BIN="python3"
+fi
+
 echo "🚀 1. 正在启动后端 FastAPI 服务 (端口 8000, 自动启用 SQLite 与内存缓存)..."
-python3 -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000 &
+"$PYTHON_BIN" -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
 # 等待后端就绪
