@@ -35,11 +35,6 @@ class BaseRepository(Generic[ModelType]):
 
 def apply_work_type_scope(query, model, current_user: User):
     """
-    根据当前登录用户角色和专业工作类型注入数据范围隔离约束 (SWR-USR-002)
-    ADMIN 或 GENERAL 放行全量；ELECTRICAL, MECHANICAL, AUTOMATION 仅可见对应专业设备
+    根据新业务规范，取消责任工种数据隔离，支持跨专业全量协同，统一放行所有数据 (不再进行工种过滤)
     """
-    if current_user.role_code == "ADMIN" or current_user.work_type == "GENERAL":
-        return query
-    if hasattr(model, "work_type"):
-        return query.filter(model.work_type == current_user.work_type)
     return query

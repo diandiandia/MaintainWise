@@ -49,7 +49,7 @@ def test_usr_001_role_permission_enforcement():
         assert token is not None
 
 def test_usr_002_work_type_data_scope(db_session: Session):
-    """TEST-USR-002: 工作类型数据过滤 (工种隔离)"""
+    """TEST-USR-002: 工作类型数据过滤 (工种隔离已移除，跨工种协同可见全部设备)"""
     loc = db_session.query(Location).filter(Location.is_leaf == True).first()
     eq1 = Equipment(equipment_code="EQ-USR2-1", equipment_name="机械泵", equipment_type="FAN", work_type="MECHANICAL", location_id=loc.id, model_spec="PUMP-100")
     eq2 = Equipment(equipment_code="EQ-USR2-2", equipment_name="配电柜", equipment_type="PLC", work_type="ELECTRICAL", location_id=loc.id, model_spec="CAB-200")
@@ -59,7 +59,10 @@ def test_usr_002_work_type_data_scope(db_session: Session):
     tech_mech = User(username="u_mech", password_hash="h", full_name="机械工", employee_no="E-01", email="m@f.com", role_code="TECHNICIAN", work_type="MECHANICAL")
     q = apply_work_type_scope(db_session.query(Equipment), Equipment, tech_mech)
     results = q.all()
-    assert all(e.work_type == "MECHANICAL" for e in results)
+    # 工种数据隔离已移除：技术员可见所有设备（含电气等其他工种）
+    codes = [e.equipment_code for e in results]
+    assert "EQ-USR2-1" in codes
+    assert "EQ-USR2-2" in codes
 
 def test_usr_003_account_lifecycle_and_soft_disable(db_session: Session):
     """TEST-USR-003: 账号生命周期与软禁用"""
@@ -641,8 +644,10 @@ def test_nfr_004_soft_delete_and_base_audit(db_session: Session):
 
 def test_nfr_005_industrial_tablet_touch_css():
     """TEST-NFR-005: 工控平板触控与 48px 热区规范"""
-    touch_css_path = "/root/MaintainWise/frontend/src/styles/touch.css"
-    assert os.path.exists(touch_css_path)
+    # 动态解析路径，兼容任意部署目录
+    _this_dir = os.path.dirname(os.path.abspath(__file__))
+    touch_css_path = os.path.abspath(os.path.join(_this_dir, "../../frontend/src/styles/touch.css"))
+    assert os.path.exists(touch_css_path), f"touch.css not found at: {touch_css_path}"
     with open(touch_css_path, "r", encoding="utf-8") as f:
         content = f.read()
     assert "48px" in content

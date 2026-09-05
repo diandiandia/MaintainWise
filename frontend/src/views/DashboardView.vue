@@ -3,7 +3,7 @@
     <!-- 顶部欢迎与统计概览 -->
     <div class="page-title-section">
       <div class="title-text">
-        <h2>综合运营与资产健康大盘</h2>
+        <h2>FCM设备运维管理平台</h2>
         <p>实时监控车间设备运行状态、SLA 履约指标及个性化待办工单 (SWR-DSH-001/002/003)</p>
       </div>
       <el-button type="primary" :icon="Refresh" @click="fetchDashboardData">刷新实时数据</el-button>

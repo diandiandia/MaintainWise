@@ -35,7 +35,7 @@ class UserCreateRequest(BaseModel):
     email: EmailStr
     phone: Optional[str] = None
     role_code: str = Field(..., description="ADMIN, ENGINEER, TECHNICIAN")
-    work_type: str = Field(..., description="ELECTRICAL, MECHANICAL, AUTOMATION, GENERAL")
+    work_type: Optional[str] = Field("GENERAL", description="ELECTRICAL, MECHANICAL, AUTOMATION, GENERAL")
 
 class UserUpdateRequest(BaseModel):
     full_name: Optional[str] = None

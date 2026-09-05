@@ -42,16 +42,16 @@ def init_db(db: Session = None):
             db.commit()
             logger.info("默认超级管理员账号 admin 初始化成功！")
             
-        # 2. 种子数据：默认5级位置树根节点
+        # 2. 种子数据：默认层级拓扑树节点 (工厂 -> 部门 -> 系统)
         root_loc = db.query(Location).filter(Location.location_code == "LOC-FAC-01").first()
         if not root_loc:
-            loc1 = Location(id=1, parent_id=None, location_name="总装制造工厂", location_code="LOC-FAC-01", level_depth=1, tree_path="/1/", is_leaf=False, sort_order=1)
-            loc2 = Location(id=2, parent_id=1, location_name="第一车间 (装配车间)", location_code="LOC-WKS-01", level_depth=2, tree_path="/1/2/", is_leaf=False, sort_order=1)
-            loc3 = Location(id=3, parent_id=2, location_name="自动化产线A", location_code="LOC-LINE-A", level_depth=3, tree_path="/1/2/3/", is_leaf=False, sort_order=1)
-            loc4 = Location(id=4, parent_id=3, location_name="工位A1 (自动上下料工位)", location_code="LOC-STN-A1", level_depth=4, tree_path="/1/2/3/4/", is_leaf=True, sort_order=1)
+            loc1 = Location(id=1, parent_id=None, location_name="总装制造工厂", location_code="LOC-FAC-01", level_depth=1, node_type="FACTORY", tree_path="/1/", is_leaf=False, sort_order=1)
+            loc2 = Location(id=2, parent_id=1, location_name="智能制造运维部", location_code="LOC-DEP-01", level_depth=2, node_type="DEPARTMENT", tree_path="/1/2/", is_leaf=False, sort_order=1)
+            loc3 = Location(id=3, parent_id=2, location_name="主排风动力循环系统", location_code="LOC-SYS-01", level_depth=3, node_type="SYSTEM", tree_path="/1/2/3/", is_leaf=True, sort_order=1)
+            loc4 = Location(id=4, parent_id=3, location_name="工位A1 (自动上下料工位)", location_code="LOC-STN-A1", level_depth=4, node_type="SYSTEM", tree_path="/1/2/3/4/", is_leaf=True, sort_order=1)
             db.add_all([loc1, loc2, loc3, loc4])
             db.commit()
-            logger.info("默认工厂层级分类树初始化成功！")
+            logger.info("默认层级拓扑分类树初始化成功！")
             
         # 3. 种子数据：默认维护到期提醒规则 (提前 7, 3, 1 天及当天)
         for lead in [7, 3, 1, 0]:

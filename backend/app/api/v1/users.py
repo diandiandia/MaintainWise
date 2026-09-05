@@ -39,6 +39,9 @@ def create_user(
     _fcp: User = Depends(check_fcp_status),
     db: Session = Depends(get_db)
 ):
+    if req.role_code not in ["ADMIN", "ENGINEER", "TECHNICIAN"]:
+        raise BusinessException(code=20003, message="系统不支持该角色或车间主管已下线，仅支持 ADMIN/ENGINEER/TECHNICIAN")
+
     exist = db.query(User).filter(
         (User.username == req.username) | (User.employee_no == req.employee_no),
         User.is_deleted == False
@@ -54,7 +57,7 @@ def create_user(
         email=req.email,
         phone=req.phone,
         role_code=req.role_code,
-        work_type=req.work_type,
+        work_type=req.work_type or "GENERAL",
         is_active=True,
         force_change_password=True,
         created_by=current_user.id
@@ -72,6 +75,8 @@ def update_user(
     _fcp: User = Depends(check_fcp_status),
     db: Session = Depends(get_db)
 ):
+    if req.role_code and req.role_code not in ["ADMIN", "ENGINEER", "TECHNICIAN"]:
+        raise BusinessException(code=20003, message="系统不支持该角色或车间主管已下线，仅支持 ADMIN/ENGINEER/TECHNICIAN")
     user = db.query(User).filter(User.id == user_id, User.is_deleted == False).first()
     if not user:
         raise BusinessException(code=40001, message="目标用户不存在", status_code=404)

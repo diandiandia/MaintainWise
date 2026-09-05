@@ -15,7 +15,6 @@
         <el-select v-model="filterRole" placeholder="按角色过滤" clearable style="width: 160px;" @change="fetchUsers">
           <el-option label="全部角色" value="" />
           <el-option label="系统管理员 (ADMIN)" value="ADMIN" />
-          <el-option label="车间主管 (SUPERVISOR)" value="SUPERVISOR" />
           <el-option label="工程师 (ENGINEER)" value="ENGINEER" />
           <el-option label="技术员 (TECHNICIAN)" value="TECHNICIAN" />
         </el-select>
@@ -104,7 +103,6 @@
               <el-select v-model="form.role_code" style="width: 100%;">
                 <el-option label="技术员 (TECHNICIAN)" value="TECHNICIAN" />
                 <el-option label="工程师 (ENGINEER)" value="ENGINEER" />
-                <el-option label="车间主管 (SUPERVISOR)" value="SUPERVISOR" />
                 <el-option label="管理员 (ADMIN)" value="ADMIN" />
               </el-select>
             </el-form-item>

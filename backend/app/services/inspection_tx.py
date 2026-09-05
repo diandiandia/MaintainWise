@@ -101,12 +101,16 @@ class InspectionAtomicService:
                 datetime.date.today() + datetime.timedelta(days=equipment.maintenance_interval_days)
             )
 
-        # 5. 更新任务状态
+        # 5. 更新任务状态及工单完成记录
         if task_id:
             task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
             if task:
                 task.status = "COMPLETED"
                 task.completed_at = datetime.datetime.now(datetime.timezone.utc)
+                if payload.get("work_order_notes"):
+                    task.work_order_notes = payload.get("work_order_notes")
+                if payload.get("completion_proof_file_ids"):
+                    task.completion_proof_file_ids = payload.get("completion_proof_file_ids")
 
         db.commit()
 

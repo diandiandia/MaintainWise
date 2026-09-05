@@ -24,9 +24,9 @@
                 <el-tag size="small" type="warning">v{{ row.version }}.0</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="interval_value" label="周期频次" width="120">
+            <el-table-column prop="interval_hours" label="维护周期" width="120">
               <template #default="{ row }">
-                每 {{ row.interval_value }} {{ getIntervalUnit(row.interval_unit) }}
+                {{ row.interval_hours }} 小时（{{ (row.interval_hours / 24).toFixed(1) }}天）
               </template>
             </el-table-column>
             <el-table-column prop="advance_notice_days" label="提前预警" width="100">
@@ -132,17 +132,13 @@
 
         <el-row :gutter="16">
           <el-col :span="8">
-            <el-form-item label="周期数值">
-              <el-input-number v-model="planForm.interval_value" :min="1" style="width: 100%;" />
+            <el-form-item label="维护周期（小时）" required>
+              <el-input-number v-model="planForm.interval_hours" :min="1" style="width: 100%;" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="周期单位">
-              <el-select v-model="planForm.interval_unit" style="width: 100%;">
-                <el-option label="天 (DAYS)" value="DAYS" />
-                <el-option label="周 (WEEKS)" value="WEEKS" />
-                <el-option label="月 (MONTHS)" value="MONTHS" />
-              </el-select>
+            <el-form-item label="等效天数（参考）">
+              <el-input :value="(planForm.interval_hours / 24).toFixed(1) + ' 天'" readonly style="width: 100%;" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
@@ -152,8 +148,8 @@
           </el-col>
         </el-row>
 
-        <!-- 巡检清单项配置 (SWR-MNT-002) -->
-        <el-divider content-position="left">SOP 巡检规范清单 (逐项判定)</el-divider>
+        <!-- 设备维护内容 (SWR-MNT-002) -->
+        <el-divider content-position="left">设备维护内容</el-divider>
 
         <div v-for="(it, idx) in planForm.items" :key="idx" class="plan-item-row">
           <el-row :gutter="10">
@@ -169,7 +165,7 @@
           </el-row>
         </div>
 
-        <el-button type="primary" link :icon="Plus" @click="addPlanItem">增加检查项</el-button>
+        <el-button type="primary" link :icon="Plus" @click="addPlanItem">增加维护项</el-button>
       </el-form>
 
       <template #footer>
@@ -198,8 +194,7 @@ const savingPlan = ref(false);
 const planForm = reactive({
   plan_name: '',
   equipment_id: 1,
-  interval_value: 30,
-  interval_unit: 'DAYS',
+  interval_hours: 720,
   advance_notice_days: 3,
   items: [
     { item_order: 1, check_item_name: '轴承润滑油位与油质', standard_benchmark: '油位处于油标1/2至2/3处，无乳化', is_required: true },

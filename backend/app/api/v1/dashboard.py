@@ -9,7 +9,7 @@ from app.schemas.common import BaseResponse
 from app.api.deps import get_current_user, check_fcp_status
 from app.repositories.base import apply_work_type_scope
 
-router = APIRouter(prefix="/dashboard", tags=["综合仪表盘与工作台"])
+router = APIRouter(prefix="/dashboard", tags=["数据平台"])
 
 @router.get("/metrics", response_model=BaseResponse)
 def get_metrics(

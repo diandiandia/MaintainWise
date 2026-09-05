@@ -17,22 +17,22 @@
       >
         <el-menu-item index="/dashboard">
           <el-icon><DataAnalysis /></el-icon>
-          <span>综合运营大盘</span>
+          <span>数据平台</span>
         </el-menu-item>
 
         <el-menu-item index="/equipments">
           <el-icon><Cpu /></el-icon>
-          <span>设备台账资产</span>
+          <span>设备信息</span>
         </el-menu-item>
 
         <el-menu-item index="/maintenance">
           <el-icon><Calendar /></el-icon>
-          <span>维护计划与工单</span>
+          <span>设备维护</span>
         </el-menu-item>
 
         <el-menu-item index="/inspection">
           <el-icon><Checked /></el-icon>
-          <span>现场巡检打卡</span>
+          <span>现场维护单</span>
         </el-menu-item>
 
         <el-menu-item index="/faults">
@@ -67,15 +67,12 @@
       <!-- 顶部 Header -->
       <el-header class="app-header">
         <div class="header-left">
-          <span class="header-breadcrumb">智能制造设备全生命周期维保协同平台</span>
+          <span class="header-breadcrumb">设备信息</span>
         </div>
 
         <div class="header-right">
           <el-tag :type="getRoleTagType(authStore.userInfo?.role_code)" effect="dark" size="small">
             {{ getRoleLabel(authStore.userInfo?.role_code) }}
-          </el-tag>
-          <el-tag type="info" size="small">
-            工种: {{ authStore.userInfo?.work_type || '通用' }}
           </el-tag>
 
           <el-dropdown trigger="click" @command="handleUserCommand">

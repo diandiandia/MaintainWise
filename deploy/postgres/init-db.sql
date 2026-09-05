@@ -46,13 +46,14 @@ CREATE TABLE IF NOT EXISTS sys_audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON sys_audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_module ON sys_audit_logs(module_name, action_type);
 
--- 4. 5级位置分类树表 (equipment_locations)
+-- 4. 车间层级拓扑树位置表 (equipment_locations: 工厂->部门->系统)
 CREATE TABLE IF NOT EXISTS equipment_locations (
     id BIGSERIAL PRIMARY KEY,
     parent_id BIGINT REFERENCES equipment_locations(id) ON DELETE RESTRICT,
     location_name VARCHAR(128) NOT NULL,
     location_code VARCHAR(64) NOT NULL UNIQUE,
     level_depth INT NOT NULL CHECK (level_depth BETWEEN 1 AND 5),
+    node_type VARCHAR(32) NOT NULL DEFAULT 'SYSTEM', -- 'FACTORY', 'DEPARTMENT', 'SYSTEM'
     tree_path VARCHAR(255) NOT NULL,
     is_leaf BOOLEAN NOT NULL DEFAULT TRUE,
     sort_order INT NOT NULL DEFAULT 0,
@@ -65,7 +66,7 @@ CREATE TABLE IF NOT EXISTS equipment_locations (
 CREATE INDEX IF NOT EXISTS idx_loc_parent ON equipment_locations(parent_id);
 CREATE INDEX IF NOT EXISTS idx_loc_path ON equipment_locations(tree_path);
 
--- 5. 设备台账主表 (equipments)
+-- 5. 设备台账主表 (equipments: 第4级设备信息挂载)
 CREATE TABLE IF NOT EXISTS equipments (
     id BIGSERIAL PRIMARY KEY,
     equipment_code VARCHAR(64) NOT NULL UNIQUE,
@@ -80,6 +81,7 @@ CREATE TABLE IF NOT EXISTS equipments (
     commission_date DATE,
     warranty_expiry_date DATE,
     maintenance_interval_days INT NOT NULL DEFAULT 30,
+    maintenance_interval_hours INT NOT NULL DEFAULT 720, -- 倒计时周期最小为小时
     next_maintenance_date DATE,
     responsible_engineer_id BIGINT REFERENCES sys_users(id),
     status VARCHAR(32) NOT NULL DEFAULT 'RUNNING', -- RUNNING, MAINTENANCE_PENDING, FAULTY, SHUTDOWN, SCRAPPED
@@ -135,8 +137,9 @@ CREATE TABLE IF NOT EXISTS maintenance_plans (
     id BIGSERIAL PRIMARY KEY,
     plan_code VARCHAR(64) NOT NULL UNIQUE,
     plan_name VARCHAR(128) NOT NULL,
-    plan_type VARCHAR(32) NOT NULL, -- DAILY, WEEKLY, MONTHLY, ANNUAL
-    interval_days INT NOT NULL,
+    plan_type VARCHAR(32) NOT NULL, -- DAILY, WEEKLY, MONTHLY, ANNUAL, HOURLY
+    interval_days INT NOT NULL DEFAULT 30,
+    interval_hours INT NOT NULL DEFAULT 720, -- 倒计时周期最小为小时
     version_no VARCHAR(16) NOT NULL DEFAULT 'V1.0',
     sop_content TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -170,6 +173,9 @@ CREATE TABLE IF NOT EXISTS maintenance_tasks (
     due_date DATE NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'PENDING', -- PENDING, IN_PROGRESS, COMPLETED, OVERDUE
     completed_at TIMESTAMP,
+    claimed_at TIMESTAMP, -- 技术员接单时间
+    work_order_notes TEXT, -- 技术员作业执行与编辑说明
+    completion_proof_file_ids JSONB NOT NULL DEFAULT '[]', -- 现场工作完成证据图片文件ID列表
     is_overdue BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -355,13 +361,13 @@ VALUES
 ('admin', '$2b$12$mogIHk0bHVz1ZXKSdSNLOOqYra.SPoxk5Sc0gMPREPI/mkOqJGEhK', '系统超级管理员', 'EMP-ADMIN-001', 'admin@factory.com', '13800000000', 'ADMIN', 'GENERAL', TRUE, TRUE)
 ON CONFLICT (username) DO NOTHING;
 
--- 2. 默认5级位置分类树节点
-INSERT INTO equipment_locations (id, parent_id, location_name, location_code, level_depth, tree_path, is_leaf, sort_order)
+-- 2. 默认层级拓扑分类树节点 (工厂 -> 部门 -> 系统)
+INSERT INTO equipment_locations (id, parent_id, location_name, location_code, level_depth, node_type, tree_path, is_leaf, sort_order)
 VALUES 
-(1, NULL, '总装制造工厂', 'LOC-FAC-01', 1, '/1/', FALSE, 1),
-(2, 1, '第一车间 (装配车间)', 'LOC-WKS-01', 2, '/1/2/', FALSE, 1),
-(3, 2, '自动化产线A', 'LOC-LINE-A', 3, '/1/2/3/', FALSE, 1),
-(4, 3, '工位A1 (自动上下料工位)', 'LOC-STN-A1', 4, '/1/2/3/4/', TRUE, 1)
+(1, NULL, '总装制造工厂', 'LOC-FAC-01', 1, 'FACTORY', '/1/', FALSE, 1),
+(2, 1, '智能制造运维部', 'LOC-DEP-01', 2, 'DEPARTMENT', '/1/2/', FALSE, 1),
+(3, 2, '主排风动力循环系统', 'LOC-SYS-01', 3, 'SYSTEM', '/1/2/3/', TRUE, 1),
+(4, 3, '工位A1 (自动上下料工位)', 'LOC-STN-A1', 4, 'SYSTEM', '/1/2/3/4/', TRUE, 1)
 ON CONFLICT (id) DO NOTHING;
 
 -- 3. 默认到期通知提醒策略 (提前7天、3天、1天及当天)

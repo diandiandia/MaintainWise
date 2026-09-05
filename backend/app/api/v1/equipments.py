@@ -14,7 +14,7 @@ from app.services.excel_processor import ExcelProcessor
 from app.core.exceptions import BusinessException
 from app.api.deps import get_current_user, require_role, check_fcp_status
 
-router = APIRouter(prefix="/equipments", tags=["设备台账管理"])
+router = APIRouter(prefix="/equipments", tags=["设备信息管理"])
 
 @router.get("", response_model=BaseResponse[PageResult[EquipmentResponse]])
 def list_equipments(
@@ -27,7 +27,7 @@ def list_equipments(
     db: Session = Depends(get_db)
 ):
     query = db.query(Equipment).filter(Equipment.is_deleted == False)
-    # 专业数据隔离过滤
+    # 专业数据隔离过滤 (已全局取消工种隔离，统一全量协同)
     query = apply_work_type_scope(query, Equipment, current_user)
 
     if equipment_type:
@@ -66,18 +66,21 @@ def create_equipment(
     if exist:
         raise BusinessException(code=20002, message=f"设备编码【{req.equipment_code}】已存在")
 
-    # 挂载位置节点校验：只能挂载在叶子节点上
+    # 挂载位置节点校验：只能挂载在系统节点(第3级)或叶子节点上
     loc = db.query(Location).filter(Location.id == req.location_id, Location.is_deleted == False).first()
     if not loc:
         raise BusinessException(code=20001, message="指定的位置节点不存在")
-    if not loc.is_leaf:
-        raise BusinessException(code=20001, message="设备只能挂载在最底层工位叶子节点上！")
+    if not loc.is_leaf and loc.level_depth < 3:
+        raise BusinessException(code=20001, message="设备信息只能挂载在系统节点(第3级)或工位叶子节点上！")
+
+    interval_hours = req.maintenance_interval_hours or (req.maintenance_interval_days * 24 if req.maintenance_interval_days else 720)
+    interval_days = max(1, interval_hours // 24)
 
     eq = Equipment(
         equipment_code=req.equipment_code,
         equipment_name=req.equipment_name,
         equipment_type=req.equipment_type,
-        work_type=req.work_type,
+        work_type=req.work_type or "GENERAL",
         location_id=req.location_id,
         manufacturer=req.manufacturer,
         model_spec=req.model_spec,
@@ -85,7 +88,8 @@ def create_equipment(
         purchase_date=req.purchase_date,
         commission_date=req.commission_date,
         warranty_expiry_date=req.warranty_expiry_date,
-        maintenance_interval_days=req.maintenance_interval_days or 30,
+        maintenance_interval_days=interval_days,
+        maintenance_interval_hours=interval_hours,
         responsible_engineer_id=req.responsible_engineer_id or current_user.id,
         status="RUNNING",
         created_by=current_user.id
@@ -105,7 +109,7 @@ def create_equipment(
     
     resp = EquipmentResponse.model_validate(eq)
     resp.params = req.params
-    return BaseResponse(data=resp, message="设备台账创建成功")
+    return BaseResponse(data=resp, message="设备信息创建成功")
 
 @router.get("/{eq_id}/timeline", response_model=BaseResponse[List[EquipmentTimelineItem]])
 def get_equipment_timeline(

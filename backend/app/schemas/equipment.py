@@ -6,17 +6,20 @@ class LocationCreateRequest(BaseModel):
     parent_id: Optional[int] = None
     location_name: str = Field(..., min_length=2, max_length=128)
     location_code: str = Field(..., min_length=2, max_length=64)
+    node_type: Optional[str] = None # FACTORY, DEPARTMENT, SYSTEM
     sort_order: Optional[int] = 0
 
 class LocationResponse(BaseModel):
-    id: int
-    parent_id: Optional[int] = None
+    id: Any
+    parent_id: Optional[Any] = None
     location_name: str
     location_code: str
     level_depth: int
-    tree_path: str
+    node_type: Optional[str] = "SYSTEM" # FACTORY, DEPARTMENT, SYSTEM, EQUIPMENT
+    tree_path: Optional[str] = ""
     is_leaf: bool
     sort_order: int
+    equipment_id: Optional[int] = None
     children: Optional[List["LocationResponse"]] = []
 
     model_config = ConfigDict(from_attributes=True)
@@ -25,7 +28,7 @@ class EquipmentCreateRequest(BaseModel):
     equipment_code: str = Field(..., min_length=3, max_length=64)
     equipment_name: str = Field(..., min_length=2, max_length=128)
     equipment_type: str = Field(..., description="SENSOR, PLC, FAN, MOTOR, INVERTER, etc.")
-    work_type: str = Field(..., description="ELECTRICAL, MECHANICAL, AUTOMATION, GENERAL")
+    work_type: Optional[str] = Field("GENERAL", description="ELECTRICAL, MECHANICAL, AUTOMATION, GENERAL")
     location_id: int
     manufacturer: Optional[str] = None
     model_spec: str = Field(..., min_length=2, max_length=128)
@@ -34,6 +37,7 @@ class EquipmentCreateRequest(BaseModel):
     commission_date: Optional[date] = None
     warranty_expiry_date: Optional[date] = None
     maintenance_interval_days: Optional[int] = 30
+    maintenance_interval_hours: Optional[int] = 720 # 最小倒计时周期为小时
     responsible_engineer_id: Optional[int] = None
     params: Optional[Dict[str, Any]] = None # 对应 11 类专有参数字典
 
@@ -44,6 +48,7 @@ class EquipmentUpdateRequest(BaseModel):
     model_spec: Optional[str] = None
     serial_number: Optional[str] = None
     maintenance_interval_days: Optional[int] = None
+    maintenance_interval_hours: Optional[int] = None
     responsible_engineer_id: Optional[int] = None
     status: Optional[str] = None
     params: Optional[Dict[str, Any]] = None
@@ -59,6 +64,7 @@ class EquipmentResponse(BaseModel):
     model_spec: str
     serial_number: Optional[str] = None
     maintenance_interval_days: int
+    maintenance_interval_hours: Optional[int] = 720
     next_maintenance_date: Optional[date] = None
     responsible_engineer_id: Optional[int] = None
     status: str

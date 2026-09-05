@@ -1,5 +1,4 @@
-from datetime import datetime, date
-from sqlalchemy import Column, String, Boolean, DateTime, Date, Integer, BigInteger, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Boolean, DateTime, Date, Integer, BigInteger, Text, ForeignKey, UniqueConstraint, JSON
 from app.core.database import Base
 from app.models.base import BaseAuditModel, utc_now
 
@@ -8,8 +7,9 @@ class MaintenancePlan(BaseAuditModel):
 
     plan_code = Column(String(64), unique=True, nullable=False, index=True)
     plan_name = Column(String(128), nullable=False)
-    plan_type = Column(String(32), nullable=False) # DAILY, WEEKLY, MONTHLY, ANNUAL
-    interval_days = Column(Integer, nullable=False)
+    plan_type = Column(String(32), nullable=False) # DAILY, WEEKLY, MONTHLY, ANNUAL, HOURLY
+    interval_days = Column(Integer, default=30, nullable=False)
+    interval_hours = Column(Integer, default=720, nullable=False) # 倒计时周期单位最小为小时
     version_no = Column(String(16), default="V1.0", nullable=False)
     sop_content = Column(Text, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
@@ -38,6 +38,9 @@ class MaintenanceTask(Base):
     due_date = Column(Date, nullable=False, index=True)
     status = Column(String(32), default="PENDING", nullable=False, index=True) # PENDING, IN_PROGRESS, COMPLETED, OVERDUE
     completed_at = Column(DateTime, nullable=True)
+    claimed_at = Column(DateTime, nullable=True) # 技术员接单时间
+    work_order_notes = Column(Text, nullable=True) # 技术员工作执行与编辑说明
+    completion_proof_file_ids = Column(JSON, default=list, nullable=False) # 现场工作完成证据图片文件ID列表
     is_overdue = Column(Boolean, default=False, nullable=False, index=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
 

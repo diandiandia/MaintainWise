@@ -12,8 +12,9 @@ class PlanItemCreateRequest(BaseModel):
 class MaintenancePlanCreateRequest(BaseModel):
     plan_code: str = Field(..., min_length=3, max_length=64)
     plan_name: str = Field(..., min_length=2, max_length=128)
-    plan_type: str = Field(..., description="DAILY, WEEKLY, MONTHLY, ANNUAL")
-    interval_days: int = Field(..., gt=0)
+    plan_type: str = Field(..., description="DAILY, WEEKLY, MONTHLY, ANNUAL, HOURLY")
+    interval_days: Optional[int] = Field(30, gt=0)
+    interval_hours: Optional[int] = Field(None, gt=0, description="倒计时周期单位最小为小时")
     sop_content: str = Field(..., min_length=5)
     items: List[PlanItemCreateRequest]
 
@@ -30,7 +31,31 @@ class InspectionSubmitRequest(BaseModel):
     execution_start_time: datetime
     execution_end_time: Optional[datetime] = None
     overall_remarks: Optional[str] = None
+    work_order_notes: Optional[str] = None # 技术员作业说明与工单编辑备注
+    completion_proof_file_ids: Optional[List[int]] = None # 现场工作完成证据图片文件ID
     details: List[InspectionDetailSubmit]
+
+class TaskClaimRequest(BaseModel):
+    task_id: int
+
+class TaskEditRequest(BaseModel):
+    work_order_notes: Optional[str] = None
+    completion_proof_file_ids: Optional[List[int]] = None
+
+class TaskResponse(BaseModel):
+    task_id: int
+    task_code: str
+    equipment_id: int
+    equipment_name: str
+    equipment_code: str
+    scheduled_date: str
+    due_date: str
+    status: str
+    is_overdue: bool
+    assigned_tech_id: Optional[int] = None
+    claimed_at: Optional[datetime] = None
+    work_order_notes: Optional[str] = None
+    completion_proof_file_ids: Optional[List[int]] = []
 
 class InspectionSubmitResponse(BaseModel):
     inspection_id: int

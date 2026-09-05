@@ -1,3 +1,4 @@
+import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -5,13 +6,20 @@ from app.core.database import get_db
 from app.models.user import User
 from app.models.maintenance import MaintenancePlan, MaintenancePlanItem, MaintenanceTask, InspectionRecord
 from app.models.equipment import Equipment
-from app.schemas.maintenance import MaintenancePlanCreateRequest, InspectionSubmitRequest, InspectionSubmitResponse, CompletionRateItem
+from app.schemas.maintenance import (
+    MaintenancePlanCreateRequest,
+    InspectionSubmitRequest,
+    InspectionSubmitResponse,
+    CompletionRateItem,
+    TaskClaimRequest,
+    TaskEditRequest
+)
 from app.schemas.common import BaseResponse, PageResult
 from app.services.inspection_tx import InspectionAtomicService
 from app.api.deps import get_current_user, require_role, check_fcp_status
 from app.core.exceptions import BusinessException
 
-router = APIRouter(prefix="/maintenance", tags=["维护与巡检"])
+router = APIRouter(prefix="/maintenance", tags=["设备维护"])
 
 @router.get("/plans", response_model=BaseResponse)
 def list_plans(
@@ -29,6 +37,7 @@ def list_plans(
             "plan_name": p.plan_name,
             "plan_type": p.plan_type,
             "interval_days": p.interval_days,
+            "interval_hours": getattr(p, "interval_hours", p.interval_days * 24),
             "version_no": p.version_no,
             "sop_content": p.sop_content,
             "items_count": len(items)
@@ -42,11 +51,15 @@ def create_plan(
     _fcp: User = Depends(check_fcp_status),
     db: Session = Depends(get_db)
 ):
+    interval_hours = req.interval_hours or (req.interval_days * 24 if req.interval_days else 720)
+    interval_days = max(1, interval_hours // 24)
+
     plan = MaintenancePlan(
         plan_code=req.plan_code,
         plan_name=req.plan_name,
         plan_type=req.plan_type,
-        interval_days=req.interval_days,
+        interval_days=interval_days,
+        interval_hours=interval_hours,
         version_no="V1.0",
         sop_content=req.sop_content,
         created_by=current_user.id
@@ -74,9 +87,9 @@ def get_my_tasks(
     _fcp: User = Depends(check_fcp_status),
     db: Session = Depends(get_db)
 ):
-    query = db.query(MaintenanceTask).filter(MaintenanceTask.status.in_(["PENDING", "OVERDUE"]))
+    query = db.query(MaintenanceTask).filter(MaintenanceTask.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]))
     if current_user.role_code == "TECHNICIAN":
-        query = query.filter(MaintenanceTask.assigned_tech_id == current_user.id)
+        query = query.filter((MaintenanceTask.assigned_tech_id == current_user.id) | (MaintenanceTask.assigned_tech_id == None))
 
     tasks = query.order_by(MaintenanceTask.due_date).all()
     results = []
@@ -91,9 +104,52 @@ def get_my_tasks(
             "scheduled_date": str(t.scheduled_date),
             "due_date": str(t.due_date),
             "status": t.status,
-            "is_overdue": t.is_overdue
+            "is_overdue": t.is_overdue,
+            "assigned_tech_id": t.assigned_tech_id,
+            "claimed_at": t.claimed_at.isoformat() if t.claimed_at else None,
+            "work_order_notes": t.work_order_notes or "",
+            "completion_proof_file_ids": t.completion_proof_file_ids or []
         })
     return BaseResponse(data=results)
+
+@router.put("/tasks/{task_id}/claim", response_model=BaseResponse)
+def claim_task(
+    task_id: int,
+    current_user: User = Depends(require_role("TECHNICIAN", "ENGINEER", "ADMIN")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
+    if not task:
+        raise BusinessException(code=40001, message="目标维护工单不存在", status_code=404)
+    if task.status == "COMPLETED":
+        raise BusinessException(code=20001, message="该工单已完工，不可重复接单")
+
+    task.assigned_tech_id = current_user.id
+    task.status = "IN_PROGRESS"
+    task.claimed_at = datetime.datetime.now(datetime.timezone.utc)
+    db.commit()
+    return BaseResponse(message="工单接单成功，已变更为执行中")
+
+@router.put("/tasks/{task_id}/edit", response_model=BaseResponse)
+def edit_task(
+    task_id: int,
+    req: TaskEditRequest,
+    current_user: User = Depends(require_role("TECHNICIAN", "ENGINEER", "ADMIN")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
+    if not task:
+        raise BusinessException(code=40001, message="目标维护工单不存在", status_code=404)
+
+    if req.work_order_notes is not None:
+        task.work_order_notes = req.work_order_notes
+    if req.completion_proof_file_ids is not None:
+        task.completion_proof_file_ids = req.completion_proof_file_ids
+
+    db.commit()
+    return BaseResponse(message="工单执行记录与完成证据更新成功")
 
 @router.post("/inspections/submit", response_model=BaseResponse[InspectionSubmitResponse])
 def submit_inspection(
