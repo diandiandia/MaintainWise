@@ -110,3 +110,66 @@ def test_upload_security_interception():
     img_res = client.post("/api/v1/system/files/upload", headers=headers, files=img_files)
     assert img_res.status_code == 200
     assert "file_id" in img_res.json()["data"]
+
+def test_smtp_config_page_save_and_test_flow():
+    """测试 SMTP 页面配置保存、密码脱敏及在线发信自检完整流 (SWR-SYS-001)"""
+    db = SessionLocal()
+    user = db.query(User).filter(User.username == "admin").first()
+    user.force_change_password = False
+    db.commit()
+    db.close()
+
+    login_res = client.post("/api/v1/auth/login", json={
+        "username": "admin",
+        "password": "MaintainWiseAdmin@2026"
+    })
+    token = login_res.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. 查询当前配置 (密码需已脱敏)
+    get_res = client.get("/api/v1/system/smtp/config", headers=headers)
+    assert get_res.status_code == 200
+    data = get_res.json()["data"]
+    assert "smtp_host" in data
+    assert data["smtp_pass_masked"] == "******"
+
+    # 2. 页面提交新配置保存 (动态持久化)
+    save_payload = {
+        "smtp_host": "smtp.maintainwise.com",
+        "smtp_port": 587,
+        "smtp_user": "alert@maintainwise.com",
+        "smtp_pass": "SecretAuthToken2026",
+        "sender_name": "车间维保预警中心",
+        "use_ssl": False,
+        "use_tls": True,
+        "is_active": True
+    }
+    save_res = client.post("/api/v1/system/smtp/config", headers=headers, json=save_payload)
+    assert save_res.status_code == 200
+    saved_data = save_res.json()["data"]
+    assert saved_data["smtp_host"] == "smtp.maintainwise.com"
+    assert saved_data["smtp_port"] == 587
+    assert saved_data["smtp_pass_masked"] == "******"
+
+    # 3. 再次保存但密码为 ******，验证原密码不被覆盖破坏
+    save_payload2 = {
+        "smtp_host": "smtp.maintainwise.com",
+        "smtp_port": 587,
+        "smtp_user": "alert@maintainwise.com",
+        "smtp_pass": "******", # 脱敏占位符
+        "sender_name": "车间维保预警中心 (更新)",
+        "use_ssl": False,
+        "use_tls": True,
+        "is_active": True
+    }
+    save_res2 = client.post("/api/v1/system/smtp/config", headers=headers, json=save_payload2)
+    assert save_res2.status_code == 200
+    assert save_res2.json()["data"]["sender_name"] == "车间维保预警中心 (更新)"
+
+    # 4. 执行在线发信自检
+    test_res = client.post("/api/v1/system/smtp/test", headers=headers, json={
+        "to_email": "admin@factory.com"
+    })
+    assert test_res.status_code == 200
+    assert "投递" in test_res.json()["message"] or "成功" in test_res.json()["message"]
+

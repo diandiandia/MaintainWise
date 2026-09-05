@@ -611,6 +611,16 @@ export function setupRouterGuard(router: Router) {
 * **单选卡片样式**：绿色大号“正常”按钮与高警示红“异常”按钮采用分屏大色块，杜绝误触。
 * **即拍即传浮窗**：点击异常项后，界面自动平滑锚点滑动至必填照片上传区域，带相机图标指引。
 
+### 6.3 SMTP 邮件服务器可视化配置与动态生效机制 (SWR-SYS-001)
+* **前端交互 (`SystemSettingsView.vue`)**：
+  - 提供 SMTP 主机、端口、发信认证账号、密码/授权码、发件人昵称及 SSL/STARTTLS 协议开关的可视化配置表单。
+  - **密码脱敏保护**：获取配置时返回 `smtp_pass_masked: "******"`；提交表单时若未输入新密码（保留 `******`），后端自动保持数据库中已加密/存储的原始授权码，实现无损脱敏编辑。
+  - **即时在线连通性自检**：提供目标邮箱输入与“发送自检测试”按钮，支持使用已保存配置或实时表单草稿参数进行网络通信握手自检。
+* **数据持久化与热重载 (`SystemSmtpConfig` + `EmailService`)**：
+  - 映射实体表 `sys_smtp_configs`，记录动态发信参数，每次页面提交即时落盘。
+  - 后台调度任务（维保提前提醒批处理、SLA 逾期告警升级）调用 `EmailService.send_email` 时动态拉取当前启用的配置，无需重启后端服务即可热生效。
+  - 任何配置更新动作通过 `AuditLog` 自动记录到 180 天防篡改操作审计流水中。
+
 ---
 
 ## 7. 软件设计追踪矩阵 (SWR to SDD Traceability)
@@ -669,7 +679,7 @@ export function setupRouterGuard(router: Router) {
 | **SWR-DSH-002** | 角色差异化待办推送 | `UserTodoRouterService` | `backend/app/services/dashboard.py` | `TEST-DSH-002` |
 | **SWR-DSH-003** | 故障趋势与完成率图表 | `DashboardChartService` | `backend/app/services/dashboard.py` | `TEST-DSH-003` |
 | **SWR-DSH-004** | 全局高频快捷动作入口 | `QuickActionFabComponent` | `frontend/src/components/QuickAction.vue`| `TEST-DSH-004` |
-| **SWR-SYS-001** | SMTP 自检发信客户端 | `SmtpClientService` | `backend/app/services/system.py` | `TEST-SYS-001` |
+| **SWR-SYS-001** | SMTP 页面可视化配置与自检发信 | `SystemSmtpConfig` + `EmailService` + `SystemSettingsView` | `backend/app/models/system.py`, `frontend/src/views/SystemSettingsView.vue` | `TEST-SYS-001` |
 | **SWR-SYS-002** | 通知分组与邮件路由 | `NotificationRoutingService` | `backend/app/services/system.py` | `TEST-SYS-002` |
 | **SWR-SYS-003** | 全生命周期邮件调度队列 | `EmailQueueWorker` | `backend/app/tasks/email_dispatcher.py` | `TEST-SYS-003` |
 | **SWR-SYS-004** | 通用 Excel 流式解析底座 | `OpenpyxlStreamEngine` | `backend/app/services/excel_processor.py`| `TEST-SYS-004` |

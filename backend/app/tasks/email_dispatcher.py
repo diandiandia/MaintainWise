@@ -4,6 +4,7 @@ from app.core.database import SessionLocal
 from app.models.equipment import Equipment
 from app.models.maintenance import MaintenanceNotifyConfig, MaintenanceNotifyLog
 from app.models.user import User
+from app.services.email_service import EmailService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,17 @@ def run_maintenance_email_dispatch_job(db: Session = None):
                     )
                     db.add(log)
                     sent_count += 1
+
+                    # 调用邮件发送服务
+                    try:
+                        EmailService.send_email(
+                            to_email=recipient,
+                            subject=f"【维保到期提醒】设备【{eq.equipment_name}】将于 {delta} 天后到达计划维护期",
+                            content=f"尊敬的责任工程师：\n\n设备【{eq.equipment_name}】(编码: {eq.equipment_code}) 下次维护日期为 {eq.next_maintenance_date}，距离今天剩余 {delta} 天，请提前筹备维保物资并按时执行检修保养。",
+                            db=db
+                        )
+                    except Exception as err:
+                        logger.warning(f"向 {recipient} 发送维保到期邮件提醒异常: {err}")
 
         db.commit()
         return {"dispatched_emails": sent_count}

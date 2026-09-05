@@ -593,6 +593,23 @@ CREATE TABLE maintenance_notify_logs (
 CREATE INDEX idx_notify_log_dedup ON maintenance_notify_logs(equipment_id, target_notify_date, notify_stage);
 ```
 
+#### 20. `sys_smtp_configs` 系统邮件发信服务器配置表 (REQ-SYS-001)
+```sql
+CREATE TABLE sys_smtp_configs (
+    id BIGSERIAL PRIMARY KEY,
+    smtp_host VARCHAR(128) NOT NULL, -- SMTP 主机地址，如 smtp.exmail.qq.com
+    smtp_port INT NOT NULL DEFAULT 465, -- 端口号: 465 (SSL), 587 (STARTTLS), 25
+    smtp_user VARCHAR(128) NOT NULL, -- 认证用户名 / 发件邮箱账号
+    smtp_pass VARCHAR(255) NOT NULL, -- 授权密码/Token (支持页面脱敏与加密保护)
+    sender_name VARCHAR(64) NOT NULL DEFAULT 'MaintainWise 智能运维中心', -- 发件人显示昵称
+    use_ssl BOOLEAN NOT NULL DEFAULT TRUE, -- 是否启用 SSL/TLS
+    use_tls BOOLEAN NOT NULL DEFAULT FALSE, -- 是否启用 STARTTLS
+    is_active BOOLEAN NOT NULL DEFAULT TRUE, -- 服务总开关
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by BIGINT REFERENCES sys_users(id)
+);
+```
+
 ---
 
 ## 4. 核心算法与后台调度引擎
@@ -801,8 +818,7 @@ $$Score = 0.50 \times S_{\text{text}} + 0.20 \times I_{\text{model}} + 0.20 \tim
 | **REQ-DSH-001** | 核心资产健康度统计卡片 | Redis 缓存预聚合查询 | `GET /api/v1/dashboard/metrics` | 首页顶部统计卡片 (正常/故障/待维护) | 模拟新增故障设备，大盘卡片数字实时更新 |
 | **REQ-DSH-002** | 角色差异化智能待办工作台 | 角色路由待办聚合服务 | `GET /api/v1/dashboard/my-todo` | 待办列表组件 (按紧急程度排序) | 技术员展示巡检待办，工程师展示故障维修待办 |
 | **REQ-DSH-003** | 故障趋势与维保分析图表 | ECharts 聚合接口 | `GET /api/v1/dashboard/charts` | 折线图 (故障趋势) 与饼图 (系统分布) | 切换近30天与近90天，动态渲染图表 |
-| **REQ-DSH-004** | 全局高频操作快捷导航 | 路由快捷组件 | 前端路由跳转 | 顶部或侧边快捷 Action 浮动按钮 | 点击“快速报修”一键直达报修弹窗 |
-| **REQ-SYS-001** | SMTP邮件服务集成与自检 | `sys_smtp_configs` | `POST /api/v1/system/smtp/test` | 邮件服务器配置页与“测试发信”按钮 | 配置 SMTP 参数点击测试，收件箱5秒内收到邮件 |
+| **REQ-SYS-001** | SMTP 邮件服务集成与自检 | `sys_smtp_configs` | `GET/POST /api/v1/system/smtp/config`, `POST /api/v1/system/smtp/test` | 邮件服务器可视化配置表单与“测试发信”按钮 | 页面配置 SMTP 参数保存落库并点击测试，收件箱5秒内收到邮件；密码强制脱敏 |
 | **REQ-SYS-002** | 通知对象与工作组配置 | 邮件通知路由表 | 系统设置“通知分组”界面 | 班组人员多选器 | 配置电气组邮箱，故障上报时仅电气组收信 |
 | **REQ-SYS-003** | 全生命周期邮件触发引擎 | 异步邮件调度队列 | 事件发布总线 | 邮件模板引擎 (HTML格式化工单) | 触发维护到期与故障升级，验证邮件格式与时效 |
 | **REQ-SYS-004** | Excel批量导入导出底座 | 通用 Excel 流式处理器 | 通用导入导出端点 | 导入对话框 (带下载模板与校验日志) | 导入不合规范的数据，单元格错误提示精确展示 |

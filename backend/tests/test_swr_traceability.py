@@ -549,10 +549,35 @@ def test_dsh_004_quick_action_fab():
 # 8. SYS 模块单元测试 (TEST-SYS-001 ~ TEST-SYS-006)
 # ==============================================================================
 
-def test_sys_001_smtp_test_client():
-    """TEST-SYS-001: SMTP 自检发信客户端"""
-    payload = {"to_email": "admin@factory.com"}
-    assert "@" in payload["to_email"]
+def test_sys_001_smtp_test_client(db_session: Session):
+    """TEST-SYS-001: SMTP 在线自检与发信服务及持久化配置"""
+    from app.models.system import SystemSmtpConfig
+    from app.services.email_service import EmailService
+
+    cfg = db_session.query(SystemSmtpConfig).first()
+    if not cfg:
+        cfg = SystemSmtpConfig(
+            smtp_host="smtp.maintainwise.com",
+            smtp_port=465,
+            smtp_user="noreply@maintainwise.com",
+            smtp_pass="InitialSmtpAuth2026",
+            sender_name="MaintainWise 智能运维中心",
+            use_ssl=True,
+            use_tls=False,
+            is_active=True
+        )
+        db_session.add(cfg)
+        db_session.commit()
+    assert cfg.smtp_host == "smtp.maintainwise.com"
+
+    res = EmailService.send_email(
+        to_email="test@factory.com",
+        subject="自检测试邮件",
+        content="内容自检测试",
+        config=cfg,
+        db=db_session
+    )
+    assert res["success"] is True
 
 def test_sys_002_notification_routing():
     """TEST-SYS-002: 通知分组与邮件路由"""

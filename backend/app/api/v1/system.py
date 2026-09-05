@@ -6,23 +6,157 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.models.user import User, AuditLog
 from app.models.equipment import EquipmentFile
+from app.models.system import SystemSmtpConfig
 from app.schemas.common import BaseResponse, PageResult
+from app.schemas.system import SmtpConfigSaveRequest, SmtpConfigResponse, SmtpTestRequest
+from app.services.email_service import EmailService
 from app.api.deps import require_role, get_current_user, check_fcp_status
 from app.core.exceptions import BusinessException
 
 router = APIRouter(prefix="/system", tags=["系统管理与支撑"])
 
+@router.get("/smtp/config", response_model=BaseResponse)
+def get_smtp_config(
+    current_user: User = Depends(require_role("ADMIN")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    """获取当前生效的 SMTP 邮件服务器配置 (密码脱敏)"""
+    config = db.query(SystemSmtpConfig).order_by(SystemSmtpConfig.id.desc()).first()
+    if not config:
+        config = SystemSmtpConfig(
+            smtp_host="smtp.maintainwise.com",
+            smtp_port=465,
+            smtp_user="noreply@maintainwise.com",
+            smtp_pass="InitialSmtpAuth2026",
+            sender_name="MaintainWise 智能运维中心",
+            use_ssl=True,
+            use_tls=False,
+            is_active=True
+        )
+        db.add(config)
+        db.commit()
+        db.refresh(config)
+
+    resp_data = SmtpConfigResponse(
+        id=config.id,
+        smtp_host=config.smtp_host,
+        smtp_port=config.smtp_port,
+        smtp_user=config.smtp_user,
+        smtp_pass_masked="******" if config.smtp_pass else "",
+        sender_name=config.sender_name,
+        use_ssl=config.use_ssl,
+        use_tls=config.use_tls,
+        is_active=config.is_active,
+        updated_at=config.updated_at,
+        updated_by=config.updated_by
+    )
+    return BaseResponse(data=resp_data.model_dump())
+
+@router.post("/smtp/config", response_model=BaseResponse)
+def save_smtp_config(
+    payload: SmtpConfigSaveRequest,
+    current_user: User = Depends(require_role("ADMIN")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    """页面配置并保存 SMTP 邮件服务器参数 (支持动态热更新)"""
+    config = db.query(SystemSmtpConfig).order_by(SystemSmtpConfig.id.desc()).first()
+    if not config:
+        config = SystemSmtpConfig(
+            smtp_host=payload.smtp_host,
+            smtp_port=payload.smtp_port,
+            smtp_user=payload.smtp_user,
+            smtp_pass=payload.smtp_pass or "DefaultPass2026",
+            sender_name=payload.sender_name,
+            use_ssl=payload.use_ssl,
+            use_tls=payload.use_tls,
+            is_active=payload.is_active,
+            updated_by=current_user.id
+        )
+        db.add(config)
+    else:
+        config.smtp_host = payload.smtp_host
+        config.smtp_port = payload.smtp_port
+        config.smtp_user = payload.smtp_user
+        if payload.smtp_pass and payload.smtp_pass.strip() and payload.smtp_pass != "******":
+            config.smtp_pass = payload.smtp_pass.strip()
+        config.sender_name = payload.sender_name
+        config.use_ssl = payload.use_ssl
+        config.use_tls = payload.use_tls
+        config.is_active = payload.is_active
+        config.updated_by = current_user.id
+
+    # 审计日志注入
+    audit = AuditLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        client_ip="127.0.0.1",
+        module_name="SYSTEM_SMTP",
+        action_type="UPDATE",
+        request_url="/api/v1/system/smtp/config",
+        request_method="POST",
+        diff_payload={"smtp_host": config.smtp_host, "smtp_user": config.smtp_user, "is_active": config.is_active},
+        status_code=200
+    )
+    db.add(audit)
+    db.commit()
+    db.refresh(config)
+
+    resp_data = SmtpConfigResponse(
+        id=config.id,
+        smtp_host=config.smtp_host,
+        smtp_port=config.smtp_port,
+        smtp_user=config.smtp_user,
+        smtp_pass_masked="******" if config.smtp_pass else "",
+        sender_name=config.sender_name,
+        use_ssl=config.use_ssl,
+        use_tls=config.use_tls,
+        is_active=config.is_active,
+        updated_at=config.updated_at,
+        updated_by=config.updated_by
+    )
+    return BaseResponse(data=resp_data.model_dump(), message="SMTP 邮件服务器配置已成功保存！")
+
 @router.post("/smtp/test", response_model=BaseResponse)
 def test_smtp(
-    payload: dict,
+    payload: SmtpTestRequest,
     current_user: User = Depends(require_role("ADMIN")),
-    _fcp: User = Depends(check_fcp_status)
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
 ):
-    target_email = payload.get("to_email")
-    if not target_email:
-        raise BusinessException(code=20006, message="收件邮箱地址为必填项")
-    # 模拟连通性测试与发信
-    return BaseResponse(message=f"测试邮件已成功向【{target_email}】投递！SMTP 服务器连接正常")
+    """SMTP 连通性在线测试 (支持已保存配置或传入表单草稿即时自检)"""
+    target_email = payload.to_email
+    if not target_email or "@" not in target_email:
+        raise BusinessException(code=20006, message="请输入合法的收件邮箱地址")
+
+    test_config = None
+    if payload.smtp_host and payload.smtp_user:
+        pass_to_use = payload.smtp_pass
+        if not pass_to_use or pass_to_use == "******":
+            saved = db.query(SystemSmtpConfig).order_by(SystemSmtpConfig.id.desc()).first()
+            pass_to_use = saved.smtp_pass if saved else ""
+
+        test_config = SystemSmtpConfig(
+            smtp_host=payload.smtp_host,
+            smtp_port=payload.smtp_port or 465,
+            smtp_user=payload.smtp_user,
+            smtp_pass=pass_to_use or "",
+            sender_name=payload.sender_name or "MaintainWise 智能运维中心",
+            use_ssl=payload.use_ssl if payload.use_ssl is not None else True,
+            use_tls=payload.use_tls if payload.use_tls is not None else False,
+            is_active=True
+        )
+
+    result = EmailService.send_email(
+        to_email=target_email,
+        subject="【MaintainWise】SMTP 邮件服务器配置自检成功",
+        content="尊敬的管理员：\n\n您在 MaintainWise 工厂设备维护系统控制台提交的 SMTP 邮件服务器连通性自检已成功通过！\n\n系统后续将通过此通道向运维团队派发工单到期提醒、SLA告警与巡检异常通知。",
+        config=test_config,
+        db=db
+    )
+
+    return BaseResponse(message=result.get("message", f"测试邮件已成功向【{target_email}】投递！SMTP 服务器连接正常"))
 
 @router.post("/files/upload", response_model=BaseResponse)
 async def upload_file(

@@ -8,6 +8,7 @@ from app.models.maintenance import MaintenancePlan, MaintenancePlanItem, Mainten
 from app.models.fault import FaultRecord, SparePart
 from app.models.knowledge import KnowledgeArticle
 from app.models.training import TrainingCourse, TrainingCourseCase, TrainingRecord, TrainingUserScore
+from app.models.system import SystemSmtpConfig
 import logging
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,23 @@ def init_db(db: Session = None):
             if not cfg:
                 db.add(MaintenanceNotifyConfig(lead_days=lead, is_enabled=True, target_role_group="ALL"))
         db.commit()
+
+        # 4. 种子数据：默认 SMTP 邮件服务器配置 (SWR-SYS-001)
+        smtp_cfg = db.query(SystemSmtpConfig).first()
+        if not smtp_cfg:
+            smtp_cfg = SystemSmtpConfig(
+                smtp_host="smtp.maintainwise.com",
+                smtp_port=465,
+                smtp_user="noreply@maintainwise.com",
+                smtp_pass="InitialSmtpAuth2026",
+                sender_name="MaintainWise 智能运维中心",
+                use_ssl=True,
+                use_tls=False,
+                is_active=True
+            )
+            db.add(smtp_cfg)
+            db.commit()
+            logger.info("默认 SMTP 邮件服务器配置初始化成功！")
         
     finally:
         if close_db:
