@@ -71,12 +71,14 @@ CREATE TABLE IF NOT EXISTS equipments (
     id BIGSERIAL PRIMARY KEY,
     equipment_code VARCHAR(64) NOT NULL UNIQUE,
     equipment_name VARCHAR(128) NOT NULL,
-    equipment_type VARCHAR(32) NOT NULL, -- SENSOR, PLC, FAN, MOTOR, INVERTER, HMI, SERVO, HYDRAULIC, PNEUMATIC, CONVEYOR, OTHER
-    work_type VARCHAR(32) NOT NULL, -- ELECTRICAL, MECHANICAL, AUTOMATION, GENERAL
+    equipment_type VARCHAR(32) DEFAULT 'GENERAL', -- 缺省通用设备
+    work_type VARCHAR(32) DEFAULT 'GENERAL', -- 缺省通用专业
     location_id BIGINT NOT NULL REFERENCES equipment_locations(id) ON DELETE RESTRICT,
     manufacturer VARCHAR(128),
     model_spec VARCHAR(128) NOT NULL,
     serial_number VARCHAR(128),
+    rated_voltage VARCHAR(64),
+    params_text TEXT, -- 设备参数信息自由文本
     purchase_date DATE,
     commission_date DATE,
     warranty_expiry_date DATE,

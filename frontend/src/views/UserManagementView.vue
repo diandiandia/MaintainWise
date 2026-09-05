@@ -2,8 +2,8 @@
   <div class="users-view">
     <div class="page-header">
       <div class="header-titles">
-        <h2>用户与班组工种权限管理</h2>
-        <p>基于 RBAC 的角色与工种数据隔离、账号生命周期与密码重置 (SWR-USR-001/002/003)</p>
+        <h2>用户管理</h2>
+        <p>基于 RBAC 的系统用户管理、角色权限分配、账号生命周期与密码重置 (SWR-USR-001/002/003)</p>
       </div>
       <div class="header-actions">
         <el-button type="primary" :icon="Plus" @click="openCreateDialog">创建新账号</el-button>

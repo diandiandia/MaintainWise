@@ -2,8 +2,8 @@
   <div class="system-view">
     <div class="page-header">
       <div class="header-titles">
-        <h2>系统管理与参数配置中心</h2>
-        <p>SMTP 邮件服务器配置与持久化、在线自检发信、文件安全与 180 天只读审计日志 (SWR-SYS-001/005/006)</p>
+        <h2>系统设置</h2>
+        <p>SMTP 邮件服务器配置与自检、系统运行环境、数据安全与 180 天只读审计日志 (SWR-SYS-001/005/006)</p>
       </div>
     </div>
 

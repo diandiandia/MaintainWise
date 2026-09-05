@@ -14,7 +14,7 @@
 1. [软件分层架构与工程目录结构](#1-软件分层架构与工程目录结构)
 2. [全局统一工业业务错误码字典 (Error Code Dictionary)](#2-全局统一工业业务错误码字典-error-code-dictionary)
 3. [核心服务类与并发控制设计 (Service Layer & Concurrency)](#3-核心服务类与并发控制设计-service-layer--concurrency)
-4. [强类型 Pydantic Schema 校验建模 (11类设备专有模型)](#4-强类型-pydantic-schema-校验建模-11类设备专有模型)
+4. [设备参数自由文本建模与灵活扩展设计 (取代死板11类Schema强校验)](#4-设备参数自由文本建模与灵活扩展设计-取代死板11类schema强校验)
 5. [后台守护调度任务设计 (Background Workers)](#5-后台守护调度任务设计-background-workers)
 6. [前端工程、状态流转与触控视图组件设计](#6-前端工程状态流转与触控视图组件设计)
 7. [软件设计追踪矩阵 (SWR to SDD Traceability)](#7-软件设计追踪矩阵-swr-to-sdd-traceability)
@@ -451,74 +451,46 @@ class EquipmentMeterService:
             "equipment_id": equipment.id,
             "current_operating_hours": equipment.current_operating_hours,
             "triggered_maintenance": triggered_maintenance
-        }
-```
-
 ---
 
-## 4. 强类型 Pydantic Schema 校验建模 (11类设备专有模型)
+## 4. 设备参数自由文本建模与灵活扩展设计 (取代死板11类Schema强校验)
 
-落实第一次反省缺陷 1 与需求 `SWR-DEV-004`：杜绝脏数据注入，建立分类型严格 Schema 校验器。
+### 4.1 业务背景与架构重构
+工业现场设备型号与非标规格千差万别，原“11类设备专有参数强校验 Schema”存在严重局限性：
+1. **穷举困难与场景受限**：现场设备（如特种成型机、真空泵、定制机械手）无法完全归入预设的 11 类模型中。
+2. **强校验频发阻断**：技术员填报设备时，由于字段格式微小出入（如非标准 IP 格式、多段转速描述）导致 400 校验异常，严重影响设备建档效率。
+3. **参数模型解耦**：将原死板的固定字段 Schema 校验彻底废除，改用**「设备参数信息」自由多行文本 (`params_text: TEXT`)**，用户可自由输入任意维度的专有技术指标、控制协议与工况要求。
 
+### 4.2 数据表持久化与 Schema 定义
 ```python
-# backend/app/schemas/equipment_params.py
-from pydantic import BaseModel, Field, IPvAnyAddress, field_validator
-from typing import Optional, Dict, Any, Literal
+# 1. 数据库模型: backend/app/models/equipment.py
+class Equipment(BaseAuditModel):
+    __tablename__ = "equipments"
+    
+    equipment_code = Column(String(64), unique=True, nullable=False, index=True)
+    equipment_name = Column(String(128), nullable=False, index=True)
+    model_spec = Column(String(128), nullable=False)
+    location_id = Column(BigInteger, ForeignKey("equipment_locations.id"), nullable=False)
+    rated_voltage = Column(String(64), nullable=True) # 额定电压 (如: 380V)
+    params_text = Column(Text, nullable=True) # 设备参数信息 (用户自由纯文本)
+    status = Column(String(32), default="RUNNING", nullable=False)
+    current_operating_hours = Column(Numeric(10, 2), default=0.0)
 
-# 1. 基础通用参数基类
-class BaseEquipmentParamSchema(BaseModel):
-    extra_params: Optional[Dict[str, Any]] = Field(default_factory=dict)
-
-# 2. PLC 专有参数强校验模型
-class PLCEquipmentParamSchema(BaseEquipmentParamSchema):
-    cpu_model: str = Field(..., min_length=2, max_length=64, description="CPU型号，如 S7-1200 CPU 1214C")
-    ip_address: str = Field(..., description="合法的工业IPv4地址")
-    comm_protocol: Literal["PROFINET", "MODBUS_TCP", "ETHERNET_IP", "OPC_UA", "MPI"] = Field(..., description="支持的工业总线协议")
-    io_points_spec: str = Field(..., min_length=2, max_length=128, description="I/O点数规格，如 14DI/10DO/2AI")
-    firmware_version: Optional[str] = Field(None, max_length=32)
-
-    @field_validator("ip_address")
-    @classmethod
-    def validate_ip(cls, v: str) -> str:
-        import ipaddress
-        try:
-            ipaddress.IPv4Address(v)
-        except ValueError:
-            raise ValueError(f"【{v}】不是合法的IPv4网络地址")
-        return v
-
-# 3. 风机专有参数强校验模型
-class FanEquipmentParamSchema(BaseEquipmentParamSchema):
-    air_volume_m3h: float = Field(..., gt=0, description="额定风量 (m³/h)，必须大于0")
-    air_pressure_pa: float = Field(..., gt=0, description="额定全压 (Pa)，必须大于0")
-    rated_power_kw: float = Field(..., gt=0, description="轴功率 (kW)")
-    rated_speed_rpm: int = Field(..., gt=0, le=30000, description="额定转速 (rpm)")
-    drive_type: Literal["DIRECT", "BELT", "COUPLING"] = Field(..., description="驱动方式: 直联/皮带/联轴器")
-
-# 4. 电机专有参数强校验模型
-class MotorEquipmentParamSchema(BaseEquipmentParamSchema):
-    rated_power_kw: float = Field(..., gt=0, description="额定功率 (kW)")
-    rated_voltage_v: float = Field(..., gt=0, description="额定电压 (V)")
-    rated_current_a: float = Field(..., gt=0, description="额定电流 (A)")
-    rated_speed_rpm: int = Field(..., gt=0, le=10000, description="额定转速 (rpm)")
-    insulation_class: Literal["A", "E", "B", "F", "H", "C"] = Field(..., description="绝缘等级")
-    protection_level: Literal["IP54", "IP55", "IP65", "IP67"] = Field(..., description="外壳防护等级")
-
-# 5. 传感器专有参数强校验模型
-class SensorEquipmentParamSchema(BaseEquipmentParamSchema):
-    measurement_type: Literal["TEMPERATURE", "PRESSURE", "FLOW", "LEVEL", "PHOTOELECTRIC", "PROXIMITY"] = Field(...)
-    measurement_range: str = Field(..., min_length=1, max_length=64, description="测量量程，如 -50~200℃")
-    output_signal_type: Literal["4-20mA", "0-10V", "0-5V", "PNP", "NPN", "RS485", "IO-Link"] = Field(...)
-    accuracy_class: str = Field(..., min_length=1, max_length=32, description="精度等级，如 ±0.5%FS")
-
-# 6. 变频器专有参数强校验模型
-class InverterEquipmentParamSchema(BaseEquipmentParamSchema):
-    rated_power_kw: float = Field(..., gt=0)
-    input_voltage_v: float = Field(..., gt=0)
-    rated_output_current_a: float = Field(..., gt=0)
-    control_mode: Literal["V_F", "VECTOR_OPEN_LOOP", "VECTOR_CLOSED_LOOP", "TORQUE"] = Field(...)
-    comm_interface: Literal["MODBUS", "CANOPEN", "PROFINET", "PROFIBUS_DP"] = Field(...)
+# 2. Pydantic 请求模型: backend/app/schemas/equipment.py
+class EquipmentCreateRequest(BaseModel):
+    equipment_code: str = Field(..., min_length=2, max_length=64)
+    equipment_name: str = Field(..., min_length=2, max_length=128)
+    location_id: int
+    model_spec: str = Field(..., min_length=1, max_length=128)
+    rated_voltage: Optional[str] = Field("380V", max_length=64)
+    params_text: Optional[str] = Field(None, description="设备参数信息(自由文本)")
+    params: Optional[Dict[str, Any]] = None # 向后兼容字段
 ```
+
+### 4.3 表单交互与回显设计
+- **录入表单**：前端录入弹窗提供大文本域（TextArea），技术人员可直接拷贝贴入设备说明书技术参数、PLC 配置参数或运行工况指标。
+- **列表回显**：表格提供“查看参数信息”按钮，点击后弹窗采用 `<pre>` 样式高亮呈现结构化自由文本。
+- **平滑兼容性**：数据库保留旧版 `equipment_params` 表，创建设备时自动将 `params_text` 镜像存入 `extra_params={"text": req.params_text}`，确保已有存量数据与报表系统平滑兼容。
 
 ---
 
@@ -712,7 +684,7 @@ export function setupRouterGuard(router: Router) {
 为满足工业现场“操作入口与权限严格匹配、未授权功能直接关闭杜绝报错弹窗”的交互要求，前端工程构建了三层联动防御体系：
 
 1. **侧边栏导航菜单收敛 (`Layout.vue`)**：
-   - 管理员专用模块（“用户与班组管理”、“系统设置与审计”）在侧边栏模板中绑定 `v-if="authStore.isAdmin"`。
+   - 管理员专用模块（“用户管理”、“系统设置”）在侧边栏模板中绑定 `v-if="authStore.isAdmin"`。
    - 非管理员角色（`ENGINEER`、`TECHNICIAN`）登录后，侧边栏完全不渲染受限菜单入口（系统精简内置三大角色，不设车间主管）。
 
 2. **全局自定义权限指令 (`directives/permission.ts`)**：
@@ -762,8 +734,8 @@ export function setupRouterGuard(router: Router) {
 | **SWR-USR-008** | 操作级细粒度权限校验 | `ActionPermissionChecker` | `backend/app/api/deps.py` | `TEST-USR-008` |
 | **SWR-DEV-001** | 4级层级拓扑树 (工厂/部门/系统/设备) | `LocationTreeService.validate_path` | `backend/app/services/location.py` | `TEST-DEV-001` |
 | **SWR-DEV-002** | 层级防孤儿删除校验 | `LocationRepository.delete` | `backend/app/repositories/location.py` | `TEST-DEV-002` |
-| **SWR-DEV-003** | 设备信息录入校验 (免工种绑定) | `EquipmentCreateSchema` | `backend/app/schemas/equipment.py` | `TEST-DEV-003` |
-| **SWR-DEV-004** | 11类设备专有强校验 | `PLCEquipmentParamSchema` 等 | `backend/app/schemas/equipment_params.py` | `TEST-DEV-004` |
+| **SWR-DEV-003** | 设备信息精简录入 (免工种/类型冗余) | `EquipmentCreateSchema` | `backend/app/schemas/equipment.py` | `TEST-DEV-003` |
+| **SWR-DEV-004** | 设备参数自由文本建模与展示 | `params_text` 自由文本扩展 | `backend/app/schemas/equipment.py` | `TEST-DEV-004` |
 | **SWR-DEV-005** | 设备状态机流转引擎 | `EquipmentStateMachine` | `backend/app/services/state_machine.py` | `TEST-DEV-005` |
 | **SWR-DEV-006** | 附件解耦与工作证据标记 | `EquipmentFile.is_linked` | `backend/app/services/file.py` | `TEST-DEV-006` |
 | **SWR-DEV-007** | 设备多维组合过滤 | `EquipmentFilterSpecification` | `backend/app/repositories/equipment.py` | `TEST-DEV-007` |

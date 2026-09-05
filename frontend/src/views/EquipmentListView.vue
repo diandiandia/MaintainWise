@@ -170,21 +170,6 @@
               />
 
               <el-select
-                v-model="filters.equipmentType"
-                placeholder="设备类型"
-                clearable
-                style="width: 140px;"
-                @change="fetchEquipments"
-              >
-                <el-option label="全部类型" value="" />
-                <el-option label="PLC控制器" value="PLC" />
-                <el-option label="工业风机" value="FAN" />
-                <el-option label="三相电机" value="MOTOR" />
-                <el-option label="传感器" value="SENSOR" />
-                <el-option label="变频器" value="VFD" />
-              </el-select>
-
-              <el-select
                 v-model="filters.status"
                 placeholder="运行状态"
                 clearable
@@ -216,32 +201,17 @@
             border
             stripe
           >
-            <el-table-column prop="equipment_code" label="设备编号" width="130" font-weight="600" />
+            <el-table-column prop="equipment_code" label="设备编码" width="130" font-weight="600" />
             <el-table-column prop="equipment_name" label="设备名称" min-width="140" />
             <el-table-column label="所属位置" min-width="160">
               <template #default="{ row }">
                 <span class="location-path-cell">{{ getLocationPath(row.location_id) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="equipment_type" label="类型" width="100">
-              <template #default="{ row }">
-                <el-tag size="small">{{ row.equipment_type }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="model_spec" label="型号规格" width="120" />
-            <el-table-column prop="work_type" label="设备专业" width="100">
-              <template #default="{ row }">
-                <el-tag size="small" type="info">{{ row.work_type }}</el-tag>
-              </template>
-            </el-table-column>
+            <el-table-column prop="model_spec" label="型号规格" width="130" />
             <el-table-column prop="status" label="状态" width="110">
               <template #default="{ row }">
                 <el-tag :type="getStatusTag(row.status)">{{ getStatusLabel(row.status) }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="维护周期" width="105">
-              <template #default="{ row }">
-                <span>{{ row.maintenance_interval_hours || (row.maintenance_interval_days * 24) }} 小时</span>
               </template>
             </el-table-column>
             <el-table-column label="累计运行工时" width="140">
@@ -258,19 +228,19 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="rated_voltage" label="额定电压" width="90" />
-            <el-table-column label="专有参数" width="100">
+            <el-table-column prop="rated_voltage" label="额定电压" width="100" />
+            <el-table-column label="设备参数信息" min-width="130">
               <template #default="{ row }">
                 <el-button
-                  v-if="row.params"
+                  v-if="row.params_text || row.params"
                   type="primary"
                   link
                   size="small"
                   @click="viewParams(row)"
                 >
-                  查看参数
+                  查看参数信息
                 </el-button>
-                <span v-else style="color: #909399; font-size: 12px;">无</span>
+                <span v-else style="color: #909399; font-size: 12px;">无参数</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="210" fixed="right">
@@ -363,11 +333,11 @@
       </template>
     </el-dialog>
 
-    <!-- 录入设备信息弹窗 (第4级设备挂载与11类专有参数) -->
+    <!-- 录入设备信息弹窗 (第4级设备挂载与设备参数信息自由录入) -->
     <el-dialog
       v-model="createDialogVisible"
-      title="录入新设备信息与专有参数"
-      width="680px"
+      title="录入新设备信息"
+      width="640px"
       append-to-body
     >
       <el-form ref="formRef" :model="form" :rules="formRules" label-position="top">
@@ -380,30 +350,6 @@
           <el-col :span="12">
             <el-form-item label="设备名称" prop="equipment_name">
               <el-input v-model="form.equipment_name" placeholder="如: 1号主排风风机" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="设备类型" prop="equipment_type">
-              <el-select v-model="form.equipment_type" style="width: 100%;">
-                <el-option label="PLC控制器" value="PLC" />
-                <el-option label="工业风机" value="FAN" />
-                <el-option label="三相异步电机" value="MOTOR" />
-                <el-option label="传感器" value="SENSOR" />
-                <el-option label="通用设备" value="OTHER" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="责任专业" prop="work_type">
-              <el-select v-model="form.work_type" style="width: 100%;">
-                <el-option label="机械类 (MECHANICAL)" value="MECHANICAL" />
-                <el-option label="电气类 (ELECTRICAL)" value="ELECTRICAL" />
-                <el-option label="自动化仪表 (AUTOMATION)" value="AUTOMATION" />
-                <el-option label="通用设备 (GENERAL)" value="GENERAL" />
-              </el-select>
             </el-form-item>
           </el-col>
         </el-row>
@@ -435,58 +381,28 @@
 
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="维护倒计时周期 (小时)">
-              <el-input-number v-model="form.maintenance_interval_hours" :min="1" style="width: 100%;" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
             <el-form-item label="额定电压">
               <el-input v-model="form.rated_voltage" placeholder="如: 380V" />
             </el-form-item>
           </el-col>
         </el-row>
 
-        <!-- 专有参数子表单 (SWR-DEV-004) -->
-        <el-divider content-position="left">11类设备专有参数 Schema 强校验</el-divider>
-
-        <div v-if="form.equipment_type === 'PLC'" class="param-group">
-          <el-row :gutter="12">
-            <el-col :span="12">
-              <el-form-item label="通信 IP 地址 (格式严格校验)">
-                <el-input v-model="plcParams.ip_address" placeholder="如: 192.168.1.10" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="通信协议">
-                <el-select v-model="plcParams.protocol" style="width: 100%;">
-                  <el-option label="Modbus TCP" value="MODBUS_TCP" />
-                  <el-option label="Profinet" value="PROFINET" />
-                  <el-option label="EtherCAT" value="ETHERCAT" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-          </el-row>
-        </div>
-
-        <div v-if="form.equipment_type === 'FAN'" class="param-group">
-          <el-row :gutter="12">
-            <el-col :span="8">
-              <el-form-item label="额定风量 (m³/h > 0)">
-                <el-input-number v-model="fanParams.air_volume" :min="1" style="width: 100%;" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="8">
-              <el-form-item label="全压 (Pa > 0)">
-                <el-input-number v-model="fanParams.total_pressure" :min="1" style="width: 100%;" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="8">
-              <el-form-item label="主轴转速 (rpm)">
-                <el-input-number v-model="fanParams.rotation_speed" :min="1" style="width: 100%;" />
-              </el-form-item>
-            </el-col>
-          </el-row>
-        </div>
+        <!-- 设备参数信息 (用户自由文本录入) -->
+        <el-form-item label="设备参数信息 (支持自定义自由文本填写设备专有参数、技术指标)">
+          <el-input
+            v-model="form.params_text"
+            type="textarea"
+            :rows="6"
+            placeholder="请在此输入设备专有技术参数，支持任意格式，如：
+额定风量: 12000 m³/h
+全压: 1800 Pa
+主轴转速: 1450 rpm
+通信协议: Modbus TCP
+IP地址: 192.168.1.50
+绝缘等级: F级
+防护等级: IP55"
+          />
+        </el-form-item>
       </el-form>
 
       <template #footer>
@@ -520,9 +436,12 @@
       </div>
     </el-drawer>
 
-    <!-- 专有参数展示弹窗 -->
-    <el-dialog v-model="paramDialogVisible" title="专有参数明细" width="450px">
-      <el-descriptions border :column="1">
+    <!-- 设备参数信息展示弹窗 -->
+    <el-dialog v-model="paramDialogVisible" title="设备参数信息明细" width="520px">
+      <div v-if="currentParamsText" class="params-display-box">
+        <pre class="params-text-content">{{ currentParamsText }}</pre>
+      </div>
+      <el-descriptions v-else-if="Object.keys(currentParams).length > 0" border :column="1">
         <el-descriptions-item
           v-for="(val, key) in currentParams"
           :key="key"
@@ -531,6 +450,7 @@
           {{ val }}
         </el-descriptions-item>
       </el-descriptions>
+      <el-empty v-else description="暂无参数信息" />
     </el-dialog>
 
     <!-- 设备运行工时填报弹窗 (SWR-MNT-012) -->
@@ -831,12 +751,10 @@ const handleDeleteLocation = async (node: any) => {
 const openCreateDialogWithLocation = (locId: number) => {
   form.equipment_code = '';
   form.equipment_name = '';
-  form.equipment_type = 'FAN';
-  form.work_type = 'MECHANICAL';
   form.model_spec = '';
   form.location_id = locId;
-  form.maintenance_interval_hours = 720;
   form.rated_voltage = '380V';
+  form.params_text = '';
   formRef.value?.resetFields();
   createDialogVisible.value = true;
 };
@@ -847,29 +765,15 @@ const formRef = ref<FormInstance>();
 const form = reactive({
   equipment_code: '',
   equipment_name: '',
-  equipment_type: 'FAN',
-  work_type: 'MECHANICAL',
   model_spec: '',
   location_id: null as number | null,
-  maintenance_interval_hours: 720,
   rated_voltage: '380V',
-});
-
-const plcParams = reactive({
-  ip_address: '192.168.1.50',
-  protocol: 'PROFINET',
-});
-
-const fanParams = reactive({
-  air_volume: 12000,
-  total_pressure: 1800,
-  rotation_speed: 1450,
+  params_text: '',
 });
 
 const formRules = {
   equipment_code: [{ required: true, message: '请输入设备编码', trigger: 'blur' }],
   equipment_name: [{ required: true, message: '请输入设备名称', trigger: 'blur' }],
-  equipment_type: [{ required: true, message: '请选择设备类型', trigger: 'change' }],
   location_id: [{ required: true, message: '请选择所属系统节点', trigger: 'change' }],
 };
 
@@ -882,6 +786,7 @@ const timelineList = ref<any[]>([]);
 // 参数展示
 const paramDialogVisible = ref(false);
 const currentParams = ref<Record<string, any>>({});
+const currentParamsText = ref<string>('');
 
 const getNodeColor = (node: any) => {
   if (node.level_depth === 1) return '#409eff';
@@ -1000,16 +905,14 @@ const openCreateDialog = () => {
   // 重置表单
   form.equipment_code = '';
   form.equipment_name = '';
-  form.equipment_type = 'FAN';
-  form.work_type = 'MECHANICAL';
   form.model_spec = '';
   if (selectedNode.value?.level_depth === 3 && selectedNode.value.node_type !== 'EQUIPMENT') {
     form.location_id = selectedNode.value.id;
   } else {
     form.location_id = systemLocations.value[0]?.id || null;
   }
-  form.maintenance_interval_hours = 720;
   form.rated_voltage = '380V';
+  form.params_text = '';
   formRef.value?.resetFields();
   createDialogVisible.value = true;
 };
@@ -1021,17 +924,18 @@ const submitCreate = async () => {
     saving.value = true;
     try {
       const payload: any = {
-        ...form,
-        maintenance_interval_days: Math.max(1, Math.floor(form.maintenance_interval_hours / 24)),
+        equipment_code: form.equipment_code,
+        equipment_name: form.equipment_name,
+        model_spec: form.model_spec,
+        location_id: form.location_id,
+        rated_voltage: form.rated_voltage,
+        params_text: form.params_text,
+        equipment_type: 'GENERAL',
+        work_type: 'GENERAL',
       };
-      if (form.equipment_type === 'PLC') {
-        payload.params = plcParams;
-      } else if (form.equipment_type === 'FAN') {
-        payload.params = fanParams;
-      }
       const res = await apiClient.post<any, any>('/equipments', payload);
       if (res.code === 200) {
-        ElMessage.success('设备信息录入成功，专有参数已通过校验');
+        ElMessage.success('设备信息录入成功');
         createDialogVisible.value = false;
         fetchEquipments();
         fetchLocationTree();
@@ -1045,6 +949,7 @@ const submitCreate = async () => {
 };
 
 const viewParams = (row: any) => {
+  currentParamsText.value = row.params_text || '';
   currentParams.value = row.params || {};
   paramDialogVisible.value = true;
 };
@@ -1431,5 +1336,24 @@ onMounted(() => {
   border-radius: 6px;
   border: 1px solid #e2e8f0;
   font-size: 14px;
+}
+
+.params-display-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 14px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.params-text-content {
+  margin: 0;
+  font-family: Menlo, Monaco, Consolas, 'Courier New', monospace, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 </style>

@@ -29,5 +29,5 @@ class ExcelProcessor:
         
     @staticmethod
     def generate_equipment_template() -> bytes:
-        headers = ["设备编码*", "设备名称*", "设备类型*", "工种*", "位置编码*", "规格型号*", "保养周期(天)"]
+        headers = ["设备编码*", "设备名称*", "规格型号*", "位置编码*", "额定电压", "设备参数信息"]
         return ExcelProcessor.export_to_excel(headers, [], sheet_name="设备导入模板")

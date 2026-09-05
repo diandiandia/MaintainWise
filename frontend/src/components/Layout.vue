@@ -52,12 +52,12 @@
 
         <el-menu-item v-if="authStore.isAdmin" index="/users">
           <el-icon><UserFilled /></el-icon>
-          <span>用户与班组管理</span>
+          <span>用户管理</span>
         </el-menu-item>
 
         <el-menu-item v-if="authStore.isAdmin" index="/system">
           <el-icon><Setting /></el-icon>
-          <span>系统设置与审计</span>
+          <span>系统设置</span>
         </el-menu-item>
       </el-menu>
     </el-aside>

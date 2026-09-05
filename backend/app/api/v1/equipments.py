@@ -56,10 +56,13 @@ def list_equipments(
     resp_items = []
     for eq in items:
         resp = EquipmentResponse.model_validate(eq)
+        resp.params_text = eq.params_text
         # 加载专有参数
         param = db.query(EquipmentParam).filter(EquipmentParam.equipment_id == eq.id).first()
         if param:
             resp.params = param.extra_params
+            if not resp.params_text and isinstance(param.extra_params, dict) and "text" in param.extra_params:
+                resp.params_text = param.extra_params["text"]
         # 附加位置路径信息
         loc = loc_map.get(eq.location_id)
         if loc:
@@ -101,12 +104,14 @@ def create_equipment(
     eq = Equipment(
         equipment_code=req.equipment_code,
         equipment_name=req.equipment_name,
-        equipment_type=req.equipment_type,
+        equipment_type=req.equipment_type or "GENERAL",
         work_type=req.work_type or "GENERAL",
         location_id=req.location_id,
         manufacturer=req.manufacturer,
         model_spec=req.model_spec,
         serial_number=req.serial_number,
+        rated_voltage=req.rated_voltage,
+        params_text=req.params_text,
         purchase_date=req.purchase_date,
         commission_date=req.commission_date,
         warranty_expiry_date=req.warranty_expiry_date,
@@ -119,10 +124,15 @@ def create_equipment(
     db.add(eq)
     db.flush()
 
-    if req.params:
+    if req.params_text or req.params:
+        extra = {}
+        if isinstance(req.params, dict):
+            extra = dict(req.params)
+        if req.params_text:
+            extra["text"] = req.params_text
         param = EquipmentParam(
             equipment_id=eq.id,
-            extra_params=req.params
+            extra_params=extra
         )
         db.add(param)
 
@@ -130,7 +140,8 @@ def create_equipment(
     db.refresh(eq)
     
     resp = EquipmentResponse.model_validate(eq)
-    resp.params = req.params
+    resp.params_text = eq.params_text
+    resp.params = req.params or ({"text": req.params_text} if req.params_text else None)
     return BaseResponse(data=resp, message="设备信息创建成功")
 
 @router.get("/{eq_id}/timeline", response_model=BaseResponse[List[EquipmentTimelineItem]])
@@ -176,17 +187,17 @@ def export_equipments_excel(
     query = apply_work_type_scope(query, Equipment, current_user)
     equipments = query.all()
 
-    headers = ["设备编码", "设备名称", "设备类型", "专业类型", "规格型号", "运行状态", "维护周期(天)"]
+    headers = ["设备编码", "设备名称", "规格型号", "额定电压", "运行状态", "累计工时(小时)", "设备参数信息"]
     rows = []
     for eq in equipments:
         rows.append([
             eq.equipment_code,
             eq.equipment_name,
-            eq.equipment_type,
-            eq.work_type,
             eq.model_spec,
+            eq.rated_voltage or "-",
             eq.status,
-            eq.maintenance_interval_days
+            float(eq.current_operating_hours or 0.0),
+            eq.params_text or ""
         ])
 
     excel_data = ExcelProcessor.export_to_excel(headers, rows, sheet_name="设备台账")
@@ -224,15 +235,17 @@ async def import_equipments_excel(
     for idx, row in enumerate(rows):
         row_num = idx + 2
         try:
-            equipment_code = str(row.get("设备编码*", "")).strip()
-            equipment_name = str(row.get("设备名称*", "")).strip()
-            equipment_type = str(row.get("设备类型*", "")).strip()
-            work_type = str(row.get("工种*", "")).strip()
-            location_code = str(row.get("位置编码*", "")).strip()
-            model_spec = str(row.get("规格型号*", "")).strip()
-            interval_days_str = str(row.get("保养周期(天)", "30")).strip()
-            if not all([equipment_code, equipment_name, equipment_type, work_type, location_code, model_spec]):
-                errors.append(f"第{row_num}行: 必填字段缺失")
+            equipment_code = str(row.get("设备编码*", "") or row.get("设备编码", "")).strip()
+            equipment_name = str(row.get("设备名称*", "") or row.get("设备名称", "")).strip()
+            location_code = str(row.get("位置编码*", "") or row.get("位置编码", "")).strip()
+            model_spec = str(row.get("规格型号*", "") or row.get("规格型号", "")).strip()
+            rated_voltage = str(row.get("额定电压", "")).strip() or "380V"
+            params_text = str(row.get("设备参数信息", "") or row.get("参数信息", "")).strip() or None
+            equipment_type = str(row.get("设备类型*", "") or row.get("设备类型", "GENERAL")).strip() or "GENERAL"
+            work_type = str(row.get("工种*", "") or row.get("责任专业", "GENERAL")).strip() or "GENERAL"
+
+            if not all([equipment_code, equipment_name, location_code, model_spec]):
+                errors.append(f"第{row_num}行: 必填字段缺失(设备编码/设备名称/规格型号/位置编码)")
                 continue
             location = db.query(Location).filter(Location.location_code == location_code, Location.is_deleted == False).first()
             if not location:
@@ -242,10 +255,7 @@ async def import_equipments_excel(
             if exist:
                 errors.append(f"第{row_num}行: 设备编码【{equipment_code}】已存在")
                 continue
-            try:
-                interval_days = int(interval_days_str) if interval_days_str else 30
-            except ValueError:
-                interval_days = 30
+
             eq = Equipment(
                 equipment_code=equipment_code,
                 equipment_name=equipment_name,
@@ -253,7 +263,8 @@ async def import_equipments_excel(
                 work_type=work_type,
                 location_id=location.id,
                 model_spec=model_spec,
-                maintenance_interval_days=interval_days,
+                rated_voltage=rated_voltage,
+                params_text=params_text,
                 status="RUNNING",
                 created_by=current_user.id
             )

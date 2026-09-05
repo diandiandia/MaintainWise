@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from sqlalchemy import Column, String, Boolean, DateTime, Date, Integer, BigInteger, Numeric, JSON, ForeignKey
+from sqlalchemy import Column, String, Boolean, DateTime, Date, Integer, BigInteger, Numeric, JSON, ForeignKey, Text
 from app.core.database import Base
 from app.models.base import BaseAuditModel, utc_now
 
@@ -20,17 +20,19 @@ class Equipment(BaseAuditModel):
 
     equipment_code = Column(String(64), unique=True, nullable=False, index=True)
     equipment_name = Column(String(128), nullable=False, index=True)
-    equipment_type = Column(String(32), nullable=False, index=True) # SENSOR, PLC, FAN, MOTOR, INVERTER, etc.
-    work_type = Column(String(32), nullable=False, index=True) # ELECTRICAL, MECHANICAL, AUTOMATION, GENERAL
+    equipment_type = Column(String(32), default="GENERAL", nullable=True, index=True) # 通用设备类型，非必填
+    work_type = Column(String(32), default="GENERAL", nullable=True, index=True) # 通用专业，非必填
     location_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("equipment_locations.id"), nullable=False, index=True)
     manufacturer = Column(String(128), nullable=True)
     model_spec = Column(String(128), nullable=False)
     serial_number = Column(String(128), nullable=True)
+    rated_voltage = Column(String(64), nullable=True) # 额定电压
+    params_text = Column(Text, nullable=True) # 设备参数信息 (用户自定义自由文本)
     purchase_date = Column(Date, nullable=True)
     commission_date = Column(Date, nullable=True)
     warranty_expiry_date = Column(Date, nullable=True)
-    maintenance_interval_days = Column(Integer, default=30, nullable=False)
-    maintenance_interval_hours = Column(Integer, default=720, nullable=False) # 最小周期单位小时
+    maintenance_interval_days = Column(Integer, default=30, nullable=True)
+    maintenance_interval_hours = Column(Integer, default=720, nullable=True) # 倒计时周期在维保计划中定义
     next_maintenance_date = Column(Date, nullable=True, index=True)
     responsible_engineer_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("sys_users.id"), nullable=True)
     status = Column(String(32), default="RUNNING", nullable=False, index=True) # RUNNING, MAINTENANCE_PENDING, FAULTY, SHUTDOWN, SCRAPPED

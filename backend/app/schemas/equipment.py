@@ -27,19 +27,21 @@ class LocationResponse(BaseModel):
 class EquipmentCreateRequest(BaseModel):
     equipment_code: str = Field(..., min_length=3, max_length=64)
     equipment_name: str = Field(..., min_length=2, max_length=128)
-    equipment_type: str = Field(..., description="SENSOR, PLC, FAN, MOTOR, INVERTER, etc.")
-    work_type: Optional[str] = Field("GENERAL", description="ELECTRICAL, MECHANICAL, AUTOMATION, GENERAL")
+    equipment_type: Optional[str] = Field("GENERAL", description="设备类型 (选填，默认为通用设备)")
+    work_type: Optional[str] = Field("GENERAL", description="责任专业 (选填，默认为通用专业)")
     location_id: int
     manufacturer: Optional[str] = None
     model_spec: str = Field(..., min_length=2, max_length=128)
     serial_number: Optional[str] = None
+    rated_voltage: Optional[str] = None
+    params_text: Optional[str] = None # 设备参数信息 (自由文本格式填写)
     purchase_date: Optional[date] = None
     commission_date: Optional[date] = None
     warranty_expiry_date: Optional[date] = None
     maintenance_interval_days: Optional[int] = 30
-    maintenance_interval_hours: Optional[int] = 720 # 最小倒计时周期为小时
+    maintenance_interval_hours: Optional[int] = 720
     responsible_engineer_id: Optional[int] = None
-    params: Optional[Dict[str, Any]] = None # 对应 11 类专有参数字典
+    params: Optional[Any] = None # 兼容字典或扩展参数
 
 class EquipmentUpdateRequest(BaseModel):
     equipment_name: Optional[str] = None
@@ -47,30 +49,34 @@ class EquipmentUpdateRequest(BaseModel):
     manufacturer: Optional[str] = None
     model_spec: Optional[str] = None
     serial_number: Optional[str] = None
+    rated_voltage: Optional[str] = None
+    params_text: Optional[str] = None
     maintenance_interval_days: Optional[int] = None
     maintenance_interval_hours: Optional[int] = None
     responsible_engineer_id: Optional[int] = None
     status: Optional[str] = None
-    params: Optional[Dict[str, Any]] = None
+    params: Optional[Any] = None
 
 class EquipmentResponse(BaseModel):
     id: int
     equipment_code: str
     equipment_name: str
-    equipment_type: str
-    work_type: str
+    equipment_type: Optional[str] = "GENERAL"
+    work_type: Optional[str] = "GENERAL"
     location_id: int
     manufacturer: Optional[str] = None
     model_spec: str
     serial_number: Optional[str] = None
-    maintenance_interval_days: int
+    rated_voltage: Optional[str] = None
+    params_text: Optional[str] = None
+    maintenance_interval_days: Optional[int] = 30
     maintenance_interval_hours: Optional[int] = 720
     next_maintenance_date: Optional[date] = None
     responsible_engineer_id: Optional[int] = None
     status: str
     current_operating_hours: Optional[float] = 0.0
     created_at: datetime
-    params: Optional[Dict[str, Any]] = None
+    params: Optional[Any] = None
     location_path: Optional[str] = None
     location_name_display: Optional[str] = None
 

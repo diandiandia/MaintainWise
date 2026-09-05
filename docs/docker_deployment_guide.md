@@ -75,7 +75,117 @@ docker compose version
 
 ---
 
-## 3. 极速一键部署流程 (3步搞定)
+## 3. Windows 电脑 Docker 环境搭建步骤 (Windows 10 / 11)
+
+针对工程师在 Windows 笔记本或工控工位机（Windows 10 / Windows 11）上搭建 MaintainWise Docker 运行环境，请按以下标准化步骤操作：
+
+### 3.1 硬件与系统前置要求
+1. **操作系统版本**：
+   - **Windows 11** 64 位（家庭版、专业版、企业版均可）；
+   - 或 **Windows 10** 64 位（版本 2004 内部版本 19041 或更高版本）。
+2. **CPU 虚拟化支持**：
+   - 打开「任务管理器」(快捷键 `Ctrl + Shift + Esc`) $\rightarrow$ 切换至「性能」选项卡 $\rightarrow$ 点击「CPU」$\rightarrow$ 确认右下角显示 **“虚拟化：已启用”**。
+   - 若显示“已禁用”，需在开机时进入电脑 BIOS/UEFI 设置（通常按 F2、F12 或 Del 键），开启 `Intel Virtual Technology (VT-x)` 或 `AMD SVM / SVM Mode`。
+
+### 3.2 第一步：开启 Windows 虚拟化与 WSL 2 功能
+以**管理员身份**打开 Windows PowerShell（在“开始”菜单搜索 PowerShell，右键点击“以管理员身份运行”），依次执行：
+
+```powershell
+# 1. 启用适用于 Linux 的 Windows 子系统 (WSL)
+dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+
+# 2. 启用虚拟机平台功能
+dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+
+# 3. 更新并设定 WSL 默认版本为 2
+wsl --update
+wsl --set-default-version 2
+```
+> [!TIP]
+> 执行完毕后，建议**重启一次 Windows 电脑**以使底层虚拟化内核组件完全生效。
+
+### 3.3 第二步：下载与安装 Docker Desktop
+1. 访问 Docker 官方下载页面：[https://www.docker.com/products/docker-desktop/](https://www.docker.com/products/docker-desktop/)，下载 `Docker Desktop for Windows` 安装包。
+2. 双击运行 `Docker Desktop Installer.exe`。
+3. 在安装向导配置界面中，**务必确认勾选**：
+   - ☑️ **Use WSL 2 instead of Hyper-V (recommended)**（采用 WSL 2 引擎，性能更高且家庭版原生支持）。
+   - ☑️ **Add shortcut to desktop**（在桌面创建快捷方式）。
+4. 安装完成后，点击 **Close and restart** 重启计算机完成最终注册。
+
+### 3.4 第三步：Docker Desktop 优化与镜像加速配置
+1. 在桌面上启动 **Docker Desktop**，接受服务条款（Accept）。
+2. 点击右上角齿轮图标 ⚙️ **Settings** 进入设置面板：
+   - **General**：确认已勾选 `Use the WSL 2 based engine`。
+   - **Resources $\rightarrow$ WSL integration**：确认已开启默认 WSL 集成。
+   - **Docker Engine**：为避免国内拉取 DockerHub 镜像因网络抖动超时，建议在 JSON 配置中增加国内镜像加速器及 DNS 配置：
+     ```json
+     {
+       "builder": {
+         "gc": {
+           "defaultKeepStorage": "20GB",
+           "enabled": true
+         }
+       },
+       "experimental": false,
+       "registry-mirrors": [
+         "https://docker.m.daocloud.io",
+         "https://huecker.io",
+         "https://dockerhub.icu"
+       ]
+     }
+     ```
+   - 点击右下角 **“Apply & restart”** 保存并重启 Docker 引擎。
+3. **验证环境就绪**：
+   打开 PowerShell 或 CMD，输入以下命令验证：
+   ```powershell
+   docker --version
+   docker compose version
+   ```
+   若正常输出版本号（如 `Docker version 27.x.x`、`Docker Compose version v2.x.x`），表明 Windows Docker 环境已完全搭建成功！
+
+### 3.5 第四步：在 Windows 上一键运行 MaintainWise
+1. 打开 PowerShell 进入 MaintainWise 所在目录（如 `D:\MaintainWise`）：
+   ```powershell
+   cd D:\MaintainWise
+   ```
+2. 复制生成环境配置文件：
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+3. 一键构建并启动所有微服务集群：
+   ```powershell
+   docker compose up -d --build
+   ```
+4. 查看服务运行状态：
+   ```powershell
+   docker compose ps
+   ```
+   确认 `maintainwise-gateway`、`maintainwise-backend`、`maintainwise-frontend`、`maintainwise-postgres`、`maintainwise-redis` 均显示 `Up`。
+
+### 3.6 Windows 局域网/内网访问与防火墙配置
+若需要在同一工厂局域网内的其他工控机、车间工业平板或技术员电脑上访问该 Windows 宿主机上运行的 MaintainWise：
+1. **查询本机内网 IP**：
+   在 PowerShell 中运行 `ipconfig`，找到正在连接的以太网或 Wi-Fi 适配器的 `IPv4 地址`（如 `192.168.1.188`）。
+2. **放行 Windows 防火墙入站 80 端口**：
+   以管理员身份在 PowerShell 执行一条命令，放行 HTTP 80 端口入站访问：
+   ```powershell
+   New-NetFirewallRule -DisplayName "MaintainWise-HTTP-80" -Direction Inbound -LocalPort 80 -Protocol TCP -Action Allow
+   ```
+3. **局域网设备接入**：
+   车间平板或其他电脑在浏览器中输入 `http://192.168.1.188` 即可直接访问 MaintainWise 工业运维平台。
+
+### 3.7 Windows 常见问题排查 (Troubleshooting)
+- **Q1: 启动时提示 80 端口被占用 (`port is already allocated` 或 `listen tcp 0.0.0.0:80: bind: address already in use`)？**
+  - **原因**：Windows 自带的 IIS 服务的 World Wide Web Publishing Service 占用了 80 端口。
+  - **解决**：在管理员 PowerShell 中输入 `Stop-Service W3SVC` 并设为禁用，或者打开 `docker-compose.yml`，将 gateway 的端口映射修改为 `8080:80`，改用 `http://localhost:8080` 访问。
+- **Q2: 提示 `WSL 2 installation is incomplete` 或内核版本过低？**
+  - **解决**：运行 `wsl --update`，完成后运行 `wsl --shutdown`，再重新打开 Docker Desktop。
+- **Q3: 提示 `Virtualization disabled in BIOS`？**
+  - **解决**：进入电脑 BIOS 设置，找到 CPU 配置，开启 Intel VT-x 或 AMD SVM 虚拟化开关。
+
+---
+
+## 4. 极速一键部署流程 (Linux / 通用 3步搞定)
 
 ### 第一步：进入项目根目录
 ```bash

@@ -7,98 +7,140 @@
 
 ## 🚀 两种运行环境与定位 (Dual-Mode Architecture)
 
-MaintainWise 采用高度解耦的**双模运行体系**，完美分离「Linux 宿主机本地直接测试与轻量开发」与「Docker 容器化生产部署」：
+MaintainWise 采用高度解耦的**双模运行体系**，完美支持「Docker 容器集群自动化生产交付」与「Linux 宿主机原生一键生产/测试运行」：
 
-| 维度 | 模式 1：Linux 宿主机直接测试与开发 (`linux_local`) | 模式 2：Docker 容器集群生产部署 (`docker_production`) |
+| 维度 | 方案 A：Docker 容器集群一键生产部署 (`docker_production`) | 方案 B：Linux 宿主机原生一键常驻部署 (`linux_native`) |
 |:---|:---|:---|
-| **核心定位** | 本地敏捷开发、CI 持续集成流水线、极速单元与E2E测试 | 生产工厂落地、微服务集群交付、高并发高可用保障 |
-| **外部依赖要求** | **零外部依赖** (无需预装或启动 PostgreSQL/Redis/Docker) | **标准 Docker 环境** (Docker 24.0+ & Docker Compose V2+) |
-| **持久化数据库** | 本地 SQLite 自动回退 (`maintainwise.db` 或内存 `:memory:`) | 独立容器 PostgreSQL 16 (挂载持久卷，启用 `pg_trgm` 向量与中文分词) |
-| **高速缓存与队列** | 本地内存 MockRedis 引擎自动降级 | 独立容器 Redis 7 (启用 AOF 持久化与密码强认证) |
-| **文件存储路径** | 动态解析至项目根目录 `uploads/` | 容器挂载 `/app/uploads`，由网关 Nginx 反向代理限流 (50MB) |
-| **后台定时调度** | 纯净按需调用测试，不阻塞线程 | 后台守护线程自动常驻执行倒计时、SLA 监控与孤儿文件清理 |
-| **启动/测试命令** | `make test` 或 `bash deploy/scripts/test_local.sh` | `make deploy` 或 `bash deploy/scripts/deploy.sh` |
+| **核心定位** | 工厂生产环境交付、微服务集群编排、标准全隔离运行 | 传统 Linux 服务器、无 Docker 环境、轻量低配工控机 |
+| **外部依赖要求** | **Docker 24.0+ & Docker Compose V2+** | **Python 3.10+ & Node.js 18+** (一键脚本全自动安装) |
+| **持久化数据库** | 独立容器 PostgreSQL 16 (挂载持久卷，`pg_trgm` 全文检索) | 本地 SQLite 高性能文件数据库 (`maintainwise.db`) 自动托管 |
+| **高速缓存与队列**| 独立容器 Redis 7 (启用 AOF 持久化与连接池) | 本地内存 MockRedis 高效运行引擎自动降级 |
+| **Web 网关与端口** | Nginx 反向代理网关，对外统一暴露 **HTTP:80** / HTTPS:443 | FastAPI 原生聚合全栈服务，对外暴露 **HTTP:8000** |
+| **一键部署指令** | `bash deploy/scripts/deploy.sh` 或 `make deploy` | `bash deploy/scripts/deploy_linux.sh install && start` |
 
 ---
 
-## 🛠️ 1. Linux 宿主机直接测试指南 (Local Direct Testing)
+## ⚡ 极速一键部署指南 (One-Click Deployment)
 
-针对在 Linux 终端环境直接进行代码修改与测试验证的场景：
+系统已内置自动化运维部署脚本，**一键即可完成所有构建、配置生成、数据库初始化与后台常驻启动**：
 
-### 1.1 安装运行依赖
-```bash
-# 1. 安装 Python 后端测试依赖
-pip install -r backend/requirements.txt
+### 🐳 方式一：Docker 容器集群一键部署 (生产首选，支持 Linux & Windows)
 
-# 2. 安装前端构建依赖
-npm install --prefix frontend
-```
+适用于车间主服务器、云服务器或安装了 Docker 的工控机：
 
-### 1.2 执行一键测试套件
-```bash
-# 一键运行全量自动化测试 (包含后端 28 项核心业务用例 + 前端 TypeScript 编译与打包)
-make test
-
-# 或者直接执行测试脚本:
-bash deploy/scripts/test_local.sh
-```
-
-### 1.3 模块专项测试
-```bash
-# 仅运行后端 Pytest 测试
-make test-backend
-# 或指定运行特定测试文件:
-pytest -v backend/tests/test_e2e_integration.py   # 全流程端到端闭环测试
-pytest -v backend/tests/test_services.py          # 领域状态机与并发锁测试
-
-# 仅运行前端类型检查与打包构建
-make test-frontend
-```
-
-### 1.4 Linux 宿主机原生一键生产常驻部署
-```bash
-# 1. 一键安装依赖并构建前端静态资源
-bash deploy/scripts/deploy_linux.sh install
-
-# 2. 一键以后台守护进程方式常驻启动 (单端口8000同时提供前端界面与后端API)
-make deploy-linux
-
-# 3. 查看状态或停止服务
-make status-linux
-make stop-linux
-```
-
----
-
-## 🐳 2. Docker 容器化集群一键部署指南 (Docker Production)
-
-针对工厂车间服务器或生产环境进行标准交付与运行：
-
-### 2.1 快速部署三步走
+#### 1. Linux 服务器一键部署
 ```bash
 cd /root/MaintainWise
 
-# 1. 复制环境变量配置文件 (生产环境可按需微调数据库密码与 JWT 密钥)
-cp .env.example .env
+# 执行一键部署脚本 (自动生成 .env、编译镜像、编排拉起 5 大微服务并自检)
+bash deploy/scripts/deploy.sh
 
-# 2. 执行自动化部署运维脚本
-make deploy
-# 或: bash deploy/scripts/deploy.sh
-
-# 3. 访问与登录
-# 浏览器访问: http://<服务器IP>
-# 初始管理员账号: admin
-# 初始管理员密码: MaintainWiseAdmin@2026
-# (系统具备 SWR-USR-004 机制，首次登录将严格强制阻断并引导修改初始密码)
+# 或者使用 Makefile 快捷命令:
+# make deploy
 ```
 
-### 2.2 常用容器运维指令
+#### 2. 🪟 Windows 电脑 (Windows 10 / 11) 一键部署
+在 Windows 笔记本或台式工控机上，通过 **WSL 2 + Docker Desktop** 极速运行：
+```powershell
+# 1. 打开 PowerShell 进入项目目录
+cd D:\MaintainWise
+
+# 2. 生成配置文件
+Copy-Item .env.example .env
+
+# 3. 一键构建并启动所有容器
+docker compose up -d --build
+```
+> [!TIP]
+> **详细步骤指引**：关于 Windows 开启 WSL 2、安装 Docker Desktop、配置国内镜像加速与放行 Windows 防火墙入站 80 端口，详见完整文档：[Docker 容器化快速部署与运维指南](docs/docker_deployment_guide.md#3-windows-电脑-docker-环境搭建步骤-windows-10--11)。
+
+#### 3. Docker 常用运维命令
 ```bash
-make docker-up     # 编排拉起所有 5 大微服务容器
-make docker-down   # 停止并销毁容器集群
-make docker-logs   # 查看全集群实时日志流
-make backup        # 执行全自动数据库与附件压缩备份
+make docker-up     # 启动/更新所有容器集群
+make docker-down   # 停止并清理容器集群
+make docker-logs   # 查看全集群实时聚合滚动日志
+make backup        # 执行数据库与附件压缩冷备份
 ```
+
+---
+
+### 🐧 方式二：Linux 原生裸机一键部署 (无需安装 Docker)
+
+适用于不具备 Docker 环境、不想运行容器的 Linux 宿主机（Ubuntu 20.04+ / Debian 11+ / CentOS 7.9+ / Rocky Linux 9+）：
+
+#### 1. 一键安装基础依赖与编译前端产物
+```bash
+cd /root/MaintainWise
+
+# 自动检测 Python、配置隔离虚拟环境、安装依赖、编译 Vue 3 前端静态产物
+bash deploy/scripts/deploy_linux.sh install
+```
+
+#### 2. 一键以后台守护进程方式常驻启动
+```bash
+# 以后台守护进程方式启动 (默认 8000 端口，单个端口同时提供前端页面与后端 API)
+bash deploy/scripts/deploy_linux.sh start 8000
+
+# 或者使用 Makefile:
+# make deploy-linux
+```
+
+#### 3. 运维生命周期管理指令
+```bash
+bash deploy/scripts/deploy_linux.sh status   # 查看当前运行状态与进程 PID (或 make status-linux)
+bash deploy/scripts/deploy_linux.sh logs     # 实时滚动查看系统运行日志
+bash deploy/scripts/deploy_linux.sh restart  # 一键平滑重启服务
+bash deploy/scripts/deploy_linux.sh stop     # 优雅停止后台服务 (或 make stop-linux)
+bash deploy/scripts/deploy_linux.sh systemd  # 生成 systemd 系统服务，实现开机自动拉起
+```
+
+---
+
+### 🛠️ 方式三：本地开发与自动化全量测试
+```bash
+# 一键执行全量自动化测试套件 (包含后端 93 项业务规范测试 + 前端 TypeScript 打包编译)
+make test
+# 或: bash deploy/scripts/test_local.sh
+
+# 仅运行后端 Pytest 测试
+make test-backend
+
+# 仅运行前端 Vue 3 + TypeScript 检查与打包
+make test-frontend
+```
+
+---
+
+## 🔑 系统访问与初始凭据
+
+服务启动后，通过浏览器即可访问工业运维平台：
+
+* **Web 访问地址**：
+  * **Docker 部署**：`http://<您的服务器IP>` （默认 80 端口）或 `http://localhost`
+  * **Linux 原生部署**：`http://<您的服务器IP>:8000`
+* **默认超级管理员账号**：`admin`
+* **默认初始强密码**：`MaintainWiseAdmin@2026`
+
+> [!IMPORTANT]
+> **安全改密强拦截 (SWR-USR-004)**：超级管理员首次登录系统后，系统将强制弹出改密对话框，成功修改密码前所有业务操作与接口均被严格阻断，保障出厂生产安全。
+
+---
+
+## 🌐 局域网 (内网) 互联访问与防火墙配置
+
+MaintainWise 原生支持车间同一局域网内的工位电脑、工业平板和移动终端互通：
+
+1. **查询宿主机内网 IP**：
+   - Linux: 执行 `hostname -I` 或 `ip addr`（如 `192.168.1.188`）。
+   - Windows: PowerShell 执行 `ipconfig` 查询 IPv4 地址。
+2. **防火墙放行端口**：
+   - **Linux (UFW)**：`sudo ufw allow 80/tcp` (Docker) 或 `sudo ufw allow 8000/tcp` (原生)。
+   - **Linux (Firewalld)**：`sudo firewall-cmd --permanent --add-port=80/tcp && sudo firewall-cmd --reload`。
+   - **Windows PowerShell (管理员)**：
+     ```powershell
+     New-NetFirewallRule -DisplayName "MaintainWise-HTTP-80" -Direction Inbound -LocalPort 80 -Protocol TCP -Action Allow
+     ```
+3. **现场设备接入**：现场平板或技术员在浏览器输入 `http://192.168.1.188` 即可流畅操作。
 
 ---
 
