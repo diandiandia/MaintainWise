@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # 核心安全与 JWT 配置
     SECRET_KEY: str = os.getenv("SECRET_KEY", "maintainwise_super_secret_jwt_key_2026_change_me")
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480")) # 默认8小时(工业标准单班时长)
     
     # 数据库连接：
     # - Linux 宿主机直接测试：默认零依赖自动 fallback 到 sqlite:///./maintainwise.db (或内存数据库)

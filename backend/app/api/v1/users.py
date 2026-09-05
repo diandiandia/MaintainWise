@@ -64,10 +64,37 @@ def create_user(
     db.refresh(user)
     return BaseResponse(data=UserResponse.model_validate(user), message="用户创建成功")
 
-@router.put("/{user_id}/status", response_model=BaseResponse)
-def toggle_user_status(
+@router.put("/{user_id}", response_model=BaseResponse)
+def update_user(
     user_id: int,
-    is_active: bool,
+    req: UserUpdateRequest,
+    current_user: User = Depends(require_role("ADMIN")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.id == user_id, User.is_deleted == False).first()
+    if not user:
+        raise BusinessException(code=40001, message="目标用户不存在", status_code=404)
+    if req.is_active is not None:
+        if user.id == current_user.id and not req.is_active:
+            raise BusinessException(code=10003, message="管理员不能禁用自身账户", status_code=400)
+        user.is_active = req.is_active
+    if req.full_name is not None:
+        user.full_name = req.full_name
+    if req.email is not None:
+        user.email = req.email
+    if req.phone is not None:
+        user.phone = req.phone
+    if req.role_code is not None:
+        user.role_code = req.role_code
+    if req.work_type is not None:
+        user.work_type = req.work_type
+    db.commit()
+    return BaseResponse(data=UserResponse.model_validate(user), message="用户信息已更新")
+
+@router.delete("/{user_id}", response_model=BaseResponse)
+def delete_user(
+    user_id: int,
     current_user: User = Depends(require_role("ADMIN")),
     _fcp: User = Depends(check_fcp_status),
     db: Session = Depends(get_db)
@@ -76,8 +103,7 @@ def toggle_user_status(
     if not user:
         raise BusinessException(code=40001, message="目标用户不存在", status_code=404)
     if user.id == current_user.id:
-        raise BusinessException(code=10003, message="管理员不能禁用自身账户", status_code=400)
-    user.is_active = is_active
+        raise BusinessException(code=10003, message="管理员不能删除自身账户", status_code=400)
+    user.is_deleted = True
     db.commit()
-    status_text = "启用" if is_active else "禁用"
-    return BaseResponse(message=f"用户已成功{status_text}")
+    return BaseResponse(message="用户已成功软删除")
