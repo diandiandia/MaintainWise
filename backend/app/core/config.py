@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 from typing import Optional
 import os
 
@@ -50,5 +51,11 @@ class Settings(BaseSettings):
     DEFAULT_ADMIN_EMAIL: str = os.getenv("DEFAULT_ADMIN_EMAIL", "admin@factory.com")
     DEFAULT_ADMIN_NAME: str = "系统超级管理员"
     DEFAULT_ADMIN_EMPLOYEE_NO: str = "EMP-ADMIN-001"
+
+    @model_validator(mode="after")
+    def _resolve_upload_dir(self):
+        if self.RUN_MODE == "linux_local":
+            object.__setattr__(self, "UPLOAD_DIR", DEFAULT_UPLOAD_DIR)
+        return self
 
 settings = Settings()

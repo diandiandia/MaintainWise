@@ -23,9 +23,9 @@ print_banner() {
 }
 
 get_python_bin() {
-    if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/python3" ] && [ -f "$VENV_DIR/bin/pip" ]; then
+    if [ -d "$VENV_DIR" ] && [ -x "$VENV_DIR/bin/python3" ] && [ -x "$VENV_DIR/bin/pip" ]; then
         echo "$VENV_DIR/bin/python3"
-    elif [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/python" ] && [ -f "$VENV_DIR/bin/pip" ]; then
+    elif [ -d "$VENV_DIR" ] && [ -x "$VENV_DIR/bin/python" ] && [ -x "$VENV_DIR/bin/pip" ]; then
         echo "$VENV_DIR/bin/python"
     else
         which python3 2>/dev/null || echo "python3"
@@ -33,9 +33,9 @@ get_python_bin() {
 }
 
 get_pip_bin() {
-    if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/pip" ]; then
+    if [ -d "$VENV_DIR" ] && [ -x "$VENV_DIR/bin/pip" ]; then
         echo "$VENV_DIR/bin/pip"
-    elif [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/pip3" ]; then
+    elif [ -d "$VENV_DIR" ] && [ -x "$VENV_DIR/bin/pip3" ]; then
         echo "$VENV_DIR/bin/pip3"
     else
         which pip3 2>/dev/null || which pip 2>/dev/null || echo "pip"
@@ -57,10 +57,14 @@ do_install() {
     # 检查/配置 Python 虚拟环境 (针对 Ubuntu 24.04+/26.04+ 及 Debian 12+ PEP 668 externally-managed-environment 限制)
     echo "🐍 正在配置 Python 运行环境..."
     USE_VENV=false
-    if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/pip" ]; then
+    if [ -d "$VENV_DIR" ] && [ -x "$VENV_DIR/bin/pip" ] && [ -x "$VENV_DIR/bin/python3" ]; then
         USE_VENV=true
         echo "✅ 检测到已就绪的 Python 虚拟环境: $VENV_DIR"
-    else
+    elif [ -d "$VENV_DIR" ]; then
+        echo "⚠️  检测到损坏的虚拟环境，正在清理重建..."
+        rm -rf "$VENV_DIR"
+    fi
+    if [ "$USE_VENV" = false ]; then
         rm -rf "$VENV_DIR"
         echo "   正在尝试创建独立虚拟环境: $VENV_DIR ..."
         if python3 -m venv "$VENV_DIR" 2>/dev/null && [ -f "$VENV_DIR/bin/pip" ]; then
@@ -75,14 +79,17 @@ do_install() {
 
     # 检查 Node.js 与 npm
     if ! command -v npm &> /dev/null; then
-        echo "❌ 错误: 未检测到 npm，请先安装 Node.js 18+ (https://nodejs.org/)"
+        echo "❌ 错误: 未检测到 npm，请先安装 Node.js 18+，例如："
+        echo "   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+        echo "   sudo apt install -y nodejs"
+        echo "   或使用系统包管理器: sudo apt update && sudo apt install -y nodejs npm"
         exit 1
     fi
     echo "✅ 检测到 Node.js: $(node -v), npm: $(npm -v)"
 
     # 安装后端依赖
     echo "📥 1/3 正在安装后端 Python 依赖..."
-    if [ "$USE_VENV" = true ] && [ -f "$VENV_DIR/bin/pip" ]; then
+    if [ "$USE_VENV" = true ] && [ -x "$VENV_DIR/bin/pip" ]; then
         echo "   使用虚拟环境 pip: $VENV_DIR/bin/pip"
         "$VENV_DIR/bin/pip" install --upgrade pip --quiet 2>/dev/null || true
         "$VENV_DIR/bin/pip" install -r backend/requirements.txt
@@ -145,6 +152,12 @@ do_start() {
     echo "📌 服务监听端口: $APP_PORT"
     echo "📄 运行日志路径: $LOG_FILE"
     echo "🐍 运行时 Python: $PYTHON_EXEC"
+
+    if ! "$PYTHON_EXEC" -c "import uvicorn" 2>/dev/null; then
+        echo "❌ 错误: uvicorn 模块未安装，请先执行依赖安装步骤："
+        echo "   bash deploy/scripts/deploy_linux.sh install"
+        exit 1
+    fi
 
     setsid "$PYTHON_EXEC" -m uvicorn app.main:app \
         --app-dir backend \
