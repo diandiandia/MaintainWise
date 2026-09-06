@@ -12,6 +12,35 @@
       </div>
     </div>
 
+    <!-- 故障多维检索过滤栏 -->
+    <div class="search-toolbar" style="display: flex; gap: 12px; align-items: center; background: #fff; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0;">
+      <el-input
+        v-model="searchKeyword"
+        placeholder="搜索故障编码 / 标题 / 部件 / 描述"
+        prefix-icon="Search"
+        clearable
+        style="width: 280px;"
+      />
+      <el-select v-model="searchSeverity" placeholder="全部严重等级" clearable style="width: 150px;">
+        <el-option label="全部等级" value="" />
+        <el-option label="紧急停线 (CRITICAL)" value="CRITICAL" />
+        <el-option label="严重故障 (MAJOR)" value="MAJOR" />
+        <el-option label="轻微故障 (MINOR)" value="MINOR" />
+      </el-select>
+      <el-input
+        v-model="searchSystem"
+        placeholder="所属系统 (如: 驱动系统)"
+        clearable
+        style="width: 200px;"
+      />
+      <el-button type="primary" :icon="Search">查 询</el-button>
+      <el-button @click="searchKeyword = ''; searchSeverity = ''; searchSystem = ''">重 置</el-button>
+      <div style="flex: 1;"></div>
+      <span style="font-size: 13px; color: #64748b;">
+        当前匹配共 <strong>{{ allFilteredCount }}</strong> 起故障工单
+      </span>
+    </div>
+
     <!-- 泳道看板 -->
     <div class="kanban-board" v-loading="loading">
       <!-- 泳道 1: 待认领池 (OPEN) -->
@@ -212,6 +241,18 @@
                 @input="handleDescInput"
               />
             </el-form-item>
+
+            <el-form-item label="故障现场照片证据 (选填)">
+              <el-upload
+                :http-request="handleReportPhotoUpload"
+                :show-file-list="false"
+                accept="image/*"
+              >
+                <el-button type="primary" plain :icon="Upload">
+                  {{ reportPhotoName ? `已上传: ${reportPhotoName}` : '点击上传故障现场照片' }}
+                </el-button>
+              </el-upload>
+            </el-form-item>
           </el-form>
         </el-col>
 
@@ -293,6 +334,18 @@
             </el-form-item>
           </el-col>
         </el-row>
+
+        <el-form-item label="解决故障方法/凭据照片 (选填)">
+          <el-upload
+            :http-request="handleResolvePhotoUpload"
+            :show-file-list="false"
+            accept="image/*"
+          >
+            <el-button type="success" plain :icon="Upload">
+              {{ resolvePhotoName ? `已上传: ${resolvePhotoName}` : '点击上传解决后凭证照片' }}
+            </el-button>
+          </el-upload>
+        </el-form-item>
       </el-form>
 
       <template #footer>
@@ -304,7 +357,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import apiClient from '@/api/client';
 import { ElMessage, ElMessageBox, FormInstance } from 'element-plus';
@@ -313,6 +366,8 @@ import {
   Plus,
   Reading,
   Loading,
+  Search,
+  Upload,
 } from '@element-plus/icons-vue';
 
 const route = useRoute();
@@ -322,6 +377,7 @@ const allFaults = ref<any[]>([]);
 const reportDialogVisible = ref(false);
 const reporting = ref(false);
 const reportFormRef = ref<FormInstance>();
+const reportPhotoName = ref('');
 const reportForm = reactive({
   equipment_id: 1,
   severity_level: 'MAJOR',
@@ -329,7 +385,50 @@ const reportForm = reactive({
   fault_part: '离合器轴承',
   fault_title: '',
   fault_desc: '',
+  evidence_file_id: null as number | null,
 });
+
+const searchKeyword = ref('');
+const searchSeverity = ref('');
+const searchSystem = ref('');
+
+const allFilteredCount = computed(() => {
+  return ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'].reduce((sum, st) => sum + getLaneItems(st).length, 0);
+});
+
+const handleReportPhotoUpload = async (options: any) => {
+  const { file } = options;
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('file_tag', 'FAULT_IMG');
+  try {
+    const res = await apiClient.post<any, any>('/system/files/upload', formData);
+    if (res.code === 200 && res.data?.file_id) {
+      reportForm.evidence_file_id = res.data.file_id;
+      reportPhotoName.value = file.name;
+      ElMessage.success('现场照片上传成功');
+    }
+  } catch (err) {
+    ElMessage.error('照片上传失败');
+  }
+};
+
+const handleResolvePhotoUpload = async (options: any) => {
+  const { file } = options;
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('file_tag', 'FAULT_IMG');
+  try {
+    const res = await apiClient.post<any, any>('/system/files/upload', formData);
+    if (res.code === 200 && res.data?.file_id) {
+      resolveForm.solution_photo_file_id = res.data.file_id;
+      resolvePhotoName.value = file.name;
+      ElMessage.success('解决凭据照片上传成功');
+    }
+  } catch (err) {
+    ElMessage.error('照片上传失败');
+  }
+};
 
 const reportRules = {
   equipment_id: [{ required: true, message: '请指定设备', trigger: 'blur' }],
@@ -368,6 +467,7 @@ const handleDescInput = () => {
 // 维修复盘
 const resolveDialogVisible = ref(false);
 const resolving = ref(false);
+const resolvePhotoName = ref('');
 const currentResolveFaultId = ref<number | null>(null);
 const resolveFormRef = ref<FormInstance>();
 const resolveForm = reactive({
@@ -375,6 +475,7 @@ const resolveForm = reactive({
   solution_steps: '',
   downtime_minutes: 30,
   is_featured_case: false,
+  solution_photo_file_id: null as number | null,
 });
 
 const resolveRules = {
@@ -383,7 +484,20 @@ const resolveRules = {
 };
 
 const getLaneItems = (status: string) => {
-  return allFaults.value.filter((f) => f.status === status);
+  return allFaults.value.filter((f) => {
+    if (f.status !== status) return false;
+    if (searchSeverity.value && f.severity_level !== searchSeverity.value) return false;
+    if (searchSystem.value && !f.fault_system?.toLowerCase().includes(searchSystem.value.toLowerCase())) return false;
+    if (searchKeyword.value) {
+      const kw = searchKeyword.value.toLowerCase();
+      const matchCode = f.fault_code?.toLowerCase().includes(kw);
+      const matchTitle = f.fault_title?.toLowerCase().includes(kw);
+      const matchDesc = f.fault_desc?.toLowerCase().includes(kw);
+      const matchPart = f.fault_part?.toLowerCase().includes(kw);
+      if (!matchCode && !matchTitle && !matchDesc && !matchPart) return false;
+    }
+    return true;
+  });
 };
 
 const getSeverityTag = (sev: string) => {
@@ -435,6 +549,8 @@ const handleClaim = async (fault: any) => {
 };
 
 const openReportDialog = () => {
+  reportPhotoName.value = '';
+  reportForm.evidence_file_id = null;
   reportDialogVisible.value = true;
 };
 
@@ -464,6 +580,8 @@ const openResolveDialog = (fault: any) => {
   resolveForm.solution_steps = fault.solution_steps || '';
   resolveForm.downtime_minutes = fault.downtime_minutes || 25;
   resolveForm.is_featured_case = fault.is_featured_case || false;
+  resolveForm.solution_photo_file_id = null;
+  resolvePhotoName.value = '';
   resolveDialogVisible.value = true;
 };
 

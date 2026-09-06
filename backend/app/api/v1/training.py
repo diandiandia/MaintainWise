@@ -92,3 +92,78 @@ def get_user_training_profile(
             "date": str(s.created_at)
         } for s in scores]
     })
+
+@router.get("/records", response_model=BaseResponse)
+def list_training_records(
+    current_user: User = Depends(get_current_user),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    """查询设备检修培训记录清单 (SWR-TRN-003)"""
+    records = db.query(TrainingRecord).order_by(TrainingRecord.training_date.desc()).all()
+    results = []
+    for r in records:
+        course = db.query(TrainingCourse).filter(TrainingCourse.id == r.course_id).first()
+        scores = db.query(TrainingUserScore).filter(TrainingUserScore.training_record_id == r.id).all()
+        passed = sum(1 for s in scores if s.is_passed)
+        results.append({
+            "id": r.id,
+            "course_id": r.course_id,
+            "course_name": course.course_name if course else "未指定课程",
+            "training_date": str(r.training_date),
+            "instructor_name": r.instructor_name,
+            "location": r.location,
+            "trainees_count": len(scores),
+            "pass_count": passed,
+            "pass_rate": round(passed / len(scores) * 100, 1) if scores else 100.0,
+            "created_at": r.created_at.isoformat() if r.created_at else None
+        })
+    return BaseResponse(data=results)
+
+@router.post("/records", response_model=BaseResponse)
+def create_training_record(
+    payload: dict,
+    current_user: User = Depends(require_role("ADMIN", "ENGINEER")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    """登记一次设备检修培训记录与打分成绩 (SWR-TRN-003/004)"""
+    import datetime
+    training_date = payload.get("training_date")
+    if isinstance(training_date, str):
+        try:
+            training_date = datetime.date.fromisoformat(training_date)
+        except ValueError:
+            training_date = datetime.date.today()
+    elif not training_date:
+        training_date = datetime.date.today()
+
+    record = TrainingRecord(
+        course_id=payload["course_id"],
+        training_date=training_date,
+        instructor_name=payload.get("instructor_name", current_user.full_name or "主讲工程师"),
+        location=payload.get("location", "车间实训区"),
+        live_photo_id=payload.get("live_photo_id"),
+        created_by=current_user.id
+    )
+    db.add(record)
+    db.flush()
+
+    trainees = payload.get("trainees", [])
+    for t in trainees:
+        user_id = t["user_id"]
+        score = float(t.get("score", 85))
+        is_passed = score >= 60.0
+        score_entry = TrainingUserScore(
+            training_record_id=record.id,
+            user_id=user_id,
+            assessment_type=t.get("assessment_type", "PRACTICAL"),
+            score=score,
+            is_passed=is_passed,
+            need_retraining=not is_passed,
+            retraining_completed=False
+        )
+        db.add(score_entry)
+
+    db.commit()
+    return BaseResponse(data={"record_id": record.id}, message="检修培训记录登记成功")

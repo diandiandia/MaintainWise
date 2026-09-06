@@ -190,6 +190,7 @@ def test_smtp(
 
     return BaseResponse(message=result.get("message", f"测试邮件已成功向【{target_email}】投递！SMTP 服务器连接正常"))
 
+@router.post("/upload", response_model=BaseResponse)
 @router.post("/files/upload", response_model=BaseResponse)
 async def upload_file(
     file: UploadFile = File(...),

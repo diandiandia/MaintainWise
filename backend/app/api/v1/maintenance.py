@@ -103,6 +103,16 @@ def create_plan(
         )
         db.add(item)
 
+    # 自动关联设备并初始化维保周期
+    if plan.equipment_ids:
+        for eq_id in plan.equipment_ids:
+            eq = db.query(Equipment).filter(Equipment.id == eq_id, Equipment.is_deleted == False).first()
+            if eq:
+                if eq.next_maintenance_date is None:
+                    eq.next_maintenance_date = datetime.date.today() + datetime.timedelta(days=interval_days)
+                eq.maintenance_interval_days = interval_days
+                eq.maintenance_interval_hours = interval_hours
+
     db.commit()
     return BaseResponse(data={"plan_id": plan.id}, message="维护计划及检查清单创建成功")
 
@@ -130,18 +140,37 @@ def update_plan(
 
     interval_hours = req.interval_hours or (req.interval_days * 24 if req.interval_days else 720)
     interval_days = max(1, interval_hours // 24)
+    trigger_mode = req.trigger_mode or "CALENDAR"
+
+    if trigger_mode == "CALENDAR":
+        advance_notice_days = req.advance_notice_days if req.advance_notice_days is not None else 3
+        advance_warning_hours = req.advance_warning_hours or (advance_notice_days * 24)
+    else:
+        advance_warning_hours = req.advance_warning_hours or 48
+        advance_notice_days = req.advance_notice_days if req.advance_notice_days is not None else max(1, round(advance_warning_hours / 24.0))
 
     plan.plan_code = req.plan_code
     plan.plan_name = req.plan_name
     plan.plan_type = req.plan_type
-    plan.trigger_mode = req.trigger_mode or "CALENDAR"
+    plan.trigger_mode = trigger_mode
     plan.interval_days = interval_days
     plan.interval_hours = interval_hours
-    plan.advance_warning_hours = req.advance_warning_hours or 48
+    plan.advance_notice_days = advance_notice_days
+    plan.advance_warning_hours = advance_warning_hours
     plan.version_no = new_version
     plan.sop_content = req.sop_content
     plan.equipment_ids = req.equipment_ids or []
     plan.updated_by = current_user.id
+
+    # 同步更新关联设备的周期
+    if plan.equipment_ids:
+        for eq_id in plan.equipment_ids:
+            eq = db.query(Equipment).filter(Equipment.id == eq_id, Equipment.is_deleted == False).first()
+            if eq:
+                if eq.next_maintenance_date is None:
+                    eq.next_maintenance_date = datetime.date.today() + datetime.timedelta(days=interval_days)
+                eq.maintenance_interval_days = interval_days
+                eq.maintenance_interval_hours = interval_hours
 
     # 删除旧清单项，重新写入
     db.query(MaintenancePlanItem).filter(MaintenancePlanItem.plan_id == plan.id).delete()
@@ -158,6 +187,31 @@ def update_plan(
 
     db.commit()
     return BaseResponse(data={"plan_id": plan.id, "version_no": new_version}, message=f"维护计划已更新，版本号升至 {new_version}")
+
+@router.put("/plans/{plan_id}/bump-version", response_model=BaseResponse)
+def bump_plan_version(
+    plan_id: int,
+    current_user: User = Depends(require_role("ADMIN", "ENGINEER")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    plan = db.query(MaintenancePlan).filter(MaintenancePlan.id == plan_id, MaintenancePlan.is_deleted == False).first()
+    if not plan:
+        raise BusinessException(code=40001, message="维护计划不存在", status_code=404)
+
+    current_version = plan.version_no or "V1.0"
+    if current_version.startswith("V"):
+        parts = current_version[1:].split(".")
+        major = int(parts[0]) if len(parts) > 0 else 1
+        minor = int(parts[1]) if len(parts) > 1 else 0
+        new_version = f"V{major}.{minor + 1}"
+    else:
+        new_version = "V1.1"
+
+    plan.version_no = new_version
+    plan.updated_by = current_user.id
+    db.commit()
+    return BaseResponse(data={"plan_id": plan.id, "version_no": new_version}, message=f"维护计划版本已升级至 {new_version} 并完成历史快照固化")
 
 @router.get("/my-tasks", response_model=BaseResponse)
 def get_my_tasks(

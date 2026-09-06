@@ -41,7 +41,9 @@ def run_daily_maintenance_countdown_job(db: Session = None):
                 processed_eq_ids.add(eq.id)
                 try:
                     if eq.next_maintenance_date is None:
-                        continue
+                        interval = plan.interval_days or eq.maintenance_interval_days or 30
+                        eq.next_maintenance_date = today + datetime.timedelta(days=interval)
+                        db.commit()
 
                     delta_days = (eq.next_maintenance_date - today).days
 
@@ -103,7 +105,9 @@ def run_daily_maintenance_countdown_job(db: Session = None):
         for eq in unassigned_equipments:
             try:
                 if eq.next_maintenance_date is None:
-                    continue
+                    interval = eq.maintenance_interval_days or 30
+                    eq.next_maintenance_date = today + datetime.timedelta(days=interval)
+                    db.commit()
 
                 delta_days = (eq.next_maintenance_date - today).days
                 if delta_days <= 0 and eq.status == "RUNNING":

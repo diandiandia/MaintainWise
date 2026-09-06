@@ -1,15 +1,18 @@
+import os
+import datetime
 from fastapi import APIRouter, Depends, Response, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from app.core.database import get_db
 from app.models.user import User
-from app.models.equipment import Equipment, EquipmentParam, Location
+from app.models.equipment import Equipment, EquipmentParam, Location, EquipmentFile
 from app.models.maintenance import InspectionRecord
 from app.models.fault import FaultRecord
 from app.schemas.equipment import (
     EquipmentCreateRequest,
     EquipmentUpdateRequest,
     EquipmentResponse,
+    EquipmentFileResponse,
     EquipmentTimelineItem,
     EquipmentOperatingLogCreateRequest,
     EquipmentOperatingSummary
@@ -53,6 +56,13 @@ def list_equipments(
         locs = db.query(Location).filter(Location.id.in_(loc_ids), Location.is_deleted == False).all()
         loc_map = {l.id: l for l in locs}
 
+    # 批量加载创建人与最后修改人，兑现“每条记录最好能看到修改人是谁”
+    user_ids = list(set(filter(None, [eq.created_by for eq in items] + [eq.updated_by for eq in items])))
+    user_map = {}
+    if user_ids:
+        users = db.query(User).filter(User.id.in_(user_ids)).all()
+        user_map = {u.id: (u.full_name or u.username) for u in users}
+
     resp_items = []
     for eq in items:
         resp = EquipmentResponse.model_validate(eq)
@@ -68,6 +78,12 @@ def list_equipments(
         if loc:
             resp.location_path = loc.tree_path
             resp.location_name_display = loc.location_name
+        # 附加创建人与修改人
+        if eq.created_by and eq.created_by in user_map:
+            resp.created_by_name = user_map[eq.created_by]
+        if eq.updated_by and eq.updated_by in user_map:
+            resp.updated_by_name = user_map[eq.updated_by]
+        resp.updated_at = eq.updated_at
         resp_items.append(resp)
 
     return BaseResponse(data=PageResult(
@@ -100,6 +116,8 @@ def create_equipment(
 
     interval_hours = req.maintenance_interval_hours or (req.maintenance_interval_days * 24 if req.maintenance_interval_days else 720)
     interval_days = max(1, interval_hours // 24)
+    commission_or_today = req.commission_date or datetime.date.today()
+    next_maint = commission_or_today + datetime.timedelta(days=interval_days)
 
     eq = Equipment(
         equipment_code=req.equipment_code,
@@ -117,6 +135,7 @@ def create_equipment(
         warranty_expiry_date=req.warranty_expiry_date,
         maintenance_interval_days=interval_days,
         maintenance_interval_hours=interval_hours,
+        next_maintenance_date=next_maint,
         responsible_engineer_id=req.responsible_engineer_id or current_user.id,
         status="RUNNING",
         created_by=current_user.id
@@ -142,6 +161,9 @@ def create_equipment(
     resp = EquipmentResponse.model_validate(eq)
     resp.params_text = eq.params_text
     resp.params = req.params or ({"text": req.params_text} if req.params_text else None)
+    resp.created_by_name = current_user.full_name or current_user.username
+    resp.location_path = loc.tree_path
+    resp.location_name_display = loc.location_name
     return BaseResponse(data=resp, message="设备信息创建成功")
 
 @router.get("/{eq_id}/timeline", response_model=BaseResponse[List[EquipmentTimelineItem]])
@@ -279,6 +301,84 @@ async def import_equipments_excel(
         "errors": errors
     }, message=f"成功导入 {created_count} 台设备" + (f"，{len(errors)} 行失败" if errors else ""))
 
+@router.put("/{eq_id}", response_model=BaseResponse[EquipmentResponse])
+def update_equipment(
+    eq_id: int,
+    req: EquipmentUpdateRequest,
+    current_user: User = Depends(require_role("ADMIN", "ENGINEER")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    eq = db.query(Equipment).filter(Equipment.id == eq_id, Equipment.is_deleted == False).first()
+    if not eq:
+        raise BusinessException(code=40001, message="设备不存在", status_code=404)
+
+    if req.location_id is not None:
+        loc = db.query(Location).filter(Location.id == req.location_id, Location.is_deleted == False).first()
+        if not loc:
+            raise BusinessException(code=20001, message="指定的位置节点不存在")
+        if loc.level_depth != 3 or loc.node_type != "SYSTEM":
+            raise BusinessException(code=20001, message="设备信息只能挂载在第3级系统节点(SYSTEM)上！")
+        eq.location_id = req.location_id
+
+    if req.equipment_name is not None:
+        eq.equipment_name = req.equipment_name
+    if req.manufacturer is not None:
+        eq.manufacturer = req.manufacturer
+    if req.model_spec is not None:
+        eq.model_spec = req.model_spec
+    if req.serial_number is not None:
+        eq.serial_number = req.serial_number
+    if req.rated_voltage is not None:
+        eq.rated_voltage = req.rated_voltage
+    if req.params_text is not None:
+        eq.params_text = req.params_text
+    if req.responsible_engineer_id is not None:
+        eq.responsible_engineer_id = req.responsible_engineer_id
+    if req.status is not None:
+        eq.status = req.status
+    if req.maintenance_interval_days is not None:
+        eq.maintenance_interval_days = req.maintenance_interval_days
+        eq.maintenance_interval_hours = req.maintenance_interval_days * 24
+    if req.maintenance_interval_hours is not None:
+        eq.maintenance_interval_hours = req.maintenance_interval_hours
+        eq.maintenance_interval_days = max(1, req.maintenance_interval_hours // 24)
+
+    eq.updated_by = current_user.id
+
+    if req.params_text is not None or req.params is not None:
+        param = db.query(EquipmentParam).filter(EquipmentParam.equipment_id == eq.id).first()
+        extra = {}
+        if isinstance(req.params, dict):
+            extra = dict(req.params)
+        if req.params_text is not None:
+            extra["text"] = req.params_text
+        if not param:
+            param = EquipmentParam(equipment_id=eq.id, extra_params=extra)
+            db.add(param)
+        else:
+            param.extra_params = extra
+
+    db.commit()
+    db.refresh(eq)
+
+    resp = EquipmentResponse.model_validate(eq)
+    resp.params_text = eq.params_text
+    resp.params = req.params or ({"text": req.params_text} if req.params_text else None)
+    resp.updated_by = current_user.id
+    resp.updated_by_name = current_user.full_name or current_user.username
+    resp.updated_at = eq.updated_at
+    if eq.created_by:
+        creator = db.query(User).filter(User.id == eq.created_by).first()
+        if creator:
+            resp.created_by_name = creator.full_name or creator.username
+    loc = db.query(Location).filter(Location.id == eq.location_id).first()
+    if loc:
+        resp.location_path = loc.tree_path
+        resp.location_name_display = loc.location_name
+
+    return BaseResponse(data=resp, message="设备信息修改成功")
+
 @router.delete("/{eq_id}", response_model=BaseResponse)
 def delete_equipment(
     eq_id: int,
@@ -292,6 +392,79 @@ def delete_equipment(
     eq.is_deleted = True
     db.commit()
     return BaseResponse(message="设备已安全软删除")
+
+@router.get("/{eq_id}/files", response_model=BaseResponse[List[EquipmentFileResponse]])
+def get_equipment_files(
+    eq_id: int,
+    current_user: User = Depends(get_current_user),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    """获取设备关联的附件列表（照片、说明书PDF、电气图纸Word/CAD等）"""
+    files = db.query(EquipmentFile).filter(
+        EquipmentFile.equipment_id == eq_id,
+        EquipmentFile.is_linked == True
+    ).order_by(EquipmentFile.created_at.desc()).all()
+
+    user_ids = list(set(filter(None, [f.created_by for f in files])))
+    user_map = {}
+    if user_ids:
+        users = db.query(User).filter(User.id.in_(user_ids)).all()
+        user_map = {u.id: (u.full_name or u.username) for u in users}
+
+    results = []
+    for f in files:
+        results.append(EquipmentFileResponse(
+            id=f.id,
+            equipment_id=f.equipment_id,
+            file_tag=f.file_tag,
+            original_filename=f.original_filename,
+            file_size_bytes=f.file_size_bytes,
+            mime_type=f.mime_type,
+            url=f"/uploads/{os.path.basename(f.storage_path)}",
+            created_at=f.created_at,
+            created_by_name=user_map.get(f.created_by, "系统")
+        ))
+    return BaseResponse(data=results)
+
+@router.post("/{eq_id}/files/bind", response_model=BaseResponse)
+def bind_equipment_file(
+    eq_id: int,
+    payload: dict,
+    current_user: User = Depends(require_role("ADMIN", "ENGINEER")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    """将已上传的文件与设备进行业务关联绑定"""
+    file_id = payload.get("file_id")
+    file_tag = payload.get("file_tag", "PHOTO")
+    if not file_id:
+        raise BusinessException(code=40001, message="缺少 file_id 参数")
+    file_rec = db.query(EquipmentFile).filter(EquipmentFile.id == file_id).first()
+    if not file_rec:
+        raise BusinessException(code=40001, message="附件不存在", status_code=404)
+    file_rec.equipment_id = eq_id
+    file_rec.file_tag = file_tag
+    file_rec.is_linked = True
+    db.commit()
+    return BaseResponse(message="附件与设备绑定成功")
+
+@router.delete("/{eq_id}/files/{file_id}", response_model=BaseResponse)
+def delete_equipment_file(
+    eq_id: int,
+    file_id: int,
+    current_user: User = Depends(require_role("ADMIN", "ENGINEER")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    """解绑或删除设备附件"""
+    file_rec = db.query(EquipmentFile).filter(EquipmentFile.id == file_id, EquipmentFile.equipment_id == eq_id).first()
+    if not file_rec:
+        raise BusinessException(code=40001, message="附件不存在或不属于该设备", status_code=404)
+    file_rec.is_linked = False
+    file_rec.equipment_id = None
+    db.commit()
+    return BaseResponse(message="附件已移除")
 
 # =========================================================================
 # 设备每日运行工时填报与预测性维保引擎 API (SWR-MNT-012)

@@ -243,7 +243,12 @@
                 <span v-else style="color: #909399; font-size: 12px;">无参数</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="210" fixed="right">
+            <el-table-column label="修改人" width="110">
+              <template #default="{ row }">
+                <span style="font-size: 13px; color: #475569;">{{ row.updated_by_name || row.created_by_name || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="310" fixed="right">
               <template #default="{ row }">
                 <el-button
                   type="success"
@@ -252,6 +257,23 @@
                   @click="openOperatingHoursDialog(row)"
                 >
                   填工时
+                </el-button>
+                <el-button
+                  v-permission="['ADMIN', 'ENGINEER']"
+                  type="warning"
+                  link
+                  size="small"
+                  @click="openEditDialog(row)"
+                >
+                  编辑
+                </el-button>
+                <el-button
+                  type="info"
+                  link
+                  size="small"
+                  @click="openFilesDialog(row)"
+                >
+                  附件/图纸
                 </el-button>
                 <el-button
                   type="primary"
@@ -336,7 +358,7 @@
     <!-- 录入设备信息弹窗 (第4级设备挂载与设备参数信息自由录入) -->
     <el-dialog
       v-model="createDialogVisible"
-      title="录入新设备信息"
+      :title="isEditing ? '编辑设备信息 (修改参数)' : '录入新设备信息'"
       width="640px"
       append-to-body
     >
@@ -344,7 +366,7 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="设备编码" prop="equipment_code">
-              <el-input v-model="form.equipment_code" placeholder="如: FAN-001" />
+              <el-input v-model="form.equipment_code" :disabled="isEditing" placeholder="如: FAN-001" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -408,6 +430,59 @@ IP地址: 192.168.1.50
       <template #footer>
         <el-button @click="createDialogVisible = false">取 消</el-button>
         <el-button type="primary" :loading="saving" @click="submitCreate">保 存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 设备照片与PDF/Word图纸附件管理弹窗 -->
+    <el-dialog
+      v-model="filesDialogVisible"
+      :title="`设备附件与图纸档案 - ${currentFilesEquipment?.equipment_name || ''} (${currentFilesEquipment?.equipment_code || ''})`"
+      width="750px"
+      append-to-body
+    >
+      <div style="margin-bottom: 16px; display: flex; align-items: center; gap: 12px; background: #f8fafc; padding: 12px; border-radius: 6px;">
+        <span style="font-size: 13px; font-weight: 600; color: #475569;">附件类型:</span>
+        <el-select v-model="uploadTag" style="width: 140px;" size="default">
+          <el-option label="设备实物照片" value="PHOTO" />
+          <el-option label="说明书 (PDF)" value="MANUAL" />
+          <el-option label="电气图纸 (Word/CAD)" value="SCHEMATIC" />
+          <el-option label="其他文档" value="OTHER" />
+        </el-select>
+        <el-upload
+          :http-request="handleCustomUpload"
+          :show-file-list="false"
+          accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.zip,.docx,.doc"
+        >
+          <el-button type="primary" :icon="Upload">上传照片/图纸文件</el-button>
+        </el-upload>
+        <span style="font-size: 12px; color: #94a3b8;">支持 JPG/PNG 照片及 PDF/Word 附件</span>
+      </div>
+
+      <el-table v-loading="filesLoading" :data="equipmentFiles" border stripe style="width: 100%;">
+        <el-table-column label="分类" width="110">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.file_tag === 'PHOTO' ? 'success' : 'warning'">
+              {{ row.file_tag === 'PHOTO' ? '设备照片' : (row.file_tag === 'MANUAL' ? '手册PDF' : (row.file_tag === 'SCHEMATIC' ? '图纸文档' : '其他附件')) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="original_filename" label="文件名称" min-width="180" show-overflow-tooltip />
+        <el-table-column label="大小" width="90">
+          <template #default="{ row }">
+            {{ Math.round((row.file_size_bytes || 0) / 1024) }} KB
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_by_name" label="上传人" width="100" />
+        <el-table-column label="操作" width="150" fixed="right">
+          <template #default="{ row }">
+            <el-button type="primary" link size="small" @click="openAttachment(row.url)">查看/下载</el-button>
+            <el-button v-permission="['ADMIN', 'ENGINEER']" type="danger" link size="small" @click="handleDeleteFile(row.id)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <template #footer>
+        <el-button @click="filesDialogVisible = false">关 闭</el-button>
       </template>
     </el-dialog>
 
@@ -523,6 +598,7 @@ import {
   Plus,
   Download,
   Delete,
+  Upload,
   HomeFilled,
   InfoFilled,
   ArrowDown,
@@ -760,6 +836,8 @@ const openCreateDialogWithLocation = (locId: number) => {
 };
 
 const createDialogVisible = ref(false);
+const isEditing = ref(false);
+const editingId = ref<number | null>(null);
 const saving = ref(false);
 const formRef = ref<FormInstance>();
 const form = reactive({
@@ -770,6 +848,13 @@ const form = reactive({
   rated_voltage: '380V',
   params_text: '',
 });
+
+// 附件与图纸档案状态
+const filesDialogVisible = ref(false);
+const currentFilesEquipment = ref<any>(null);
+const equipmentFiles = ref<any[]>([]);
+const filesLoading = ref(false);
+const uploadTag = ref('PHOTO');
 
 const formRules = {
   equipment_code: [{ required: true, message: '请输入设备编码', trigger: 'blur' }],
@@ -902,7 +987,8 @@ const fetchEquipments = async () => {
 };
 
 const openCreateDialog = () => {
-  // 重置表单
+  isEditing.value = false;
+  editingId.value = null;
   form.equipment_code = '';
   form.equipment_name = '';
   form.model_spec = '';
@@ -917,28 +1003,56 @@ const openCreateDialog = () => {
   createDialogVisible.value = true;
 };
 
+const openEditDialog = (row: any) => {
+  isEditing.value = true;
+  editingId.value = row.id;
+  form.equipment_code = row.equipment_code;
+  form.equipment_name = row.equipment_name;
+  form.model_spec = row.model_spec;
+  form.location_id = row.location_id;
+  form.rated_voltage = row.rated_voltage || '380V';
+  form.params_text = row.params_text || '';
+  createDialogVisible.value = true;
+};
+
 const submitCreate = async () => {
   if (!formRef.value) return;
   await formRef.value.validate(async (valid) => {
     if (!valid) return;
     saving.value = true;
     try {
-      const payload: any = {
-        equipment_code: form.equipment_code,
-        equipment_name: form.equipment_name,
-        model_spec: form.model_spec,
-        location_id: form.location_id,
-        rated_voltage: form.rated_voltage,
-        params_text: form.params_text,
-        equipment_type: 'GENERAL',
-        work_type: 'GENERAL',
-      };
-      const res = await apiClient.post<any, any>('/equipments', payload);
-      if (res.code === 200) {
-        ElMessage.success('设备信息录入成功');
-        createDialogVisible.value = false;
-        fetchEquipments();
-        fetchLocationTree();
+      if (isEditing.value && editingId.value) {
+        const payload: any = {
+          equipment_name: form.equipment_name,
+          model_spec: form.model_spec,
+          location_id: form.location_id,
+          rated_voltage: form.rated_voltage,
+          params_text: form.params_text,
+        };
+        const res = await apiClient.put<any, any>(`/equipments/${editingId.value}`, payload);
+        if (res.code === 200) {
+          ElMessage.success('设备信息修改成功');
+          createDialogVisible.value = false;
+          fetchEquipments();
+        }
+      } else {
+        const payload: any = {
+          equipment_code: form.equipment_code,
+          equipment_name: form.equipment_name,
+          model_spec: form.model_spec,
+          location_id: form.location_id,
+          rated_voltage: form.rated_voltage,
+          params_text: form.params_text,
+          equipment_type: 'GENERAL',
+          work_type: 'GENERAL',
+        };
+        const res = await apiClient.post<any, any>('/equipments', payload);
+        if (res.code === 200) {
+          ElMessage.success('设备信息录入成功');
+          createDialogVisible.value = false;
+          fetchEquipments();
+          fetchLocationTree();
+        }
       }
     } catch (err) {
       console.error(err);
@@ -946,6 +1060,61 @@ const submitCreate = async () => {
       saving.value = false;
     }
   });
+};
+
+const openFilesDialog = async (row: any) => {
+  currentFilesEquipment.value = row;
+  filesDialogVisible.value = true;
+  fetchEquipmentFiles(row.id);
+};
+
+const fetchEquipmentFiles = async (eqId: number) => {
+  filesLoading.value = true;
+  try {
+    const res = await apiClient.get<any, any>(`/equipments/${eqId}/files`);
+    if (res.code === 200) {
+      equipmentFiles.value = res.data || [];
+    }
+  } catch (e) {
+    console.error(e);
+  } finally {
+    filesLoading.value = false;
+  }
+};
+
+const handleCustomUpload = async (options: any) => {
+  const { file } = options;
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('file_tag', uploadTag.value);
+  try {
+    const uploadRes = await apiClient.post<any, any>('/system/files/upload', formData);
+    if (uploadRes.code === 200 && uploadRes.data?.file_id) {
+      await apiClient.post<any, any>(`/equipments/${currentFilesEquipment.value.id}/files/bind`, {
+        file_id: uploadRes.data.file_id,
+        file_tag: uploadTag.value,
+      });
+      ElMessage.success('附件上传并绑定成功');
+      fetchEquipmentFiles(currentFilesEquipment.value.id);
+    }
+  } catch (err) {
+    ElMessage.error('上传附件失败');
+  }
+};
+
+const handleDeleteFile = async (fileId: number) => {
+  try {
+    await ElMessageBox.confirm('确认移除该附件？', '提示', { type: 'warning' });
+    const res = await apiClient.delete<any, any>(`/equipments/${currentFilesEquipment.value.id}/files/${fileId}`);
+    if (res.code === 200) {
+      ElMessage.success('附件已移除');
+      fetchEquipmentFiles(currentFilesEquipment.value.id);
+    }
+  } catch (e) {}
+};
+
+const openAttachment = (url: string) => {
+  window.open(url, '_blank');
 };
 
 const viewParams = (row: any) => {

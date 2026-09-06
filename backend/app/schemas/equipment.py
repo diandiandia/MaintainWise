@@ -76,9 +76,27 @@ class EquipmentResponse(BaseModel):
     status: str
     current_operating_hours: Optional[float] = 0.0
     created_at: datetime
+    created_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[int] = None
+    updated_by_name: Optional[str] = None
     params: Optional[Any] = None
     location_path: Optional[str] = None
     location_name_display: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class EquipmentFileResponse(BaseModel):
+    id: int
+    equipment_id: Optional[int] = None
+    file_tag: str # PHOTO, MANUAL, SCHEMATIC, etc.
+    original_filename: str
+    file_size_bytes: int
+    mime_type: str
+    url: str
+    created_at: datetime
+    created_by_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
