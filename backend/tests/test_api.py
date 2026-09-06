@@ -315,4 +315,28 @@ def test_maintenance_plan_bump_version_and_advance_days():
     assert new_version != old_version
     assert new_version.startswith("V")
 
+    # 5. 测试获取单个计划详情 (GET /plans/{plan_id})
+    detail_res = client.get(f"/api/v1/maintenance/plans/{plan_id}", headers=headers)
+    assert detail_res.status_code == 200
+    detail_data = detail_res.json()["data"]
+    assert detail_data["id"] == plan_id
+    assert len(detail_data["items"]) == 1
+    assert detail_data["items"][0]["check_item_name"] == "检查PLC指示灯与散热风扇"
+
+    # 6. 测试停用/启用计划切换 (PUT /plans/{plan_id}/toggle-status)
+    toggle_res = client.put(f"/api/v1/maintenance/plans/{plan_id}/toggle-status", headers=headers)
+    assert toggle_res.status_code == 200
+    assert toggle_res.json()["data"]["is_active"] == False
+
+    toggle_back_res = client.put(f"/api/v1/maintenance/plans/{plan_id}/toggle-status", headers=headers)
+    assert toggle_back_res.status_code == 200
+    assert toggle_back_res.json()["data"]["is_active"] == True
+
+    # 7. 测试软删除计划 (DELETE /plans/{plan_id})
+    del_res = client.delete(f"/api/v1/maintenance/plans/{plan_id}", headers=headers)
+    assert del_res.status_code == 200
+    # 删除后再获取详情应返回 404
+    detail_after_del = client.get(f"/api/v1/maintenance/plans/{plan_id}", headers=headers)
+    assert detail_after_del.status_code == 404
+
 

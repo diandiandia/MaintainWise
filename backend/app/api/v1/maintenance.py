@@ -52,8 +52,18 @@ def list_plans(
             "version_no": p.version_no,
             "sop_content": p.sop_content,
             "is_active": getattr(p, "is_active", True),
-            "equipment_ids": getattr(p, "equipment_ids", []),
-            "items_count": len(items)
+            "equipment_ids": getattr(p, "equipment_ids", []) or [],
+            "items_count": len(items),
+            "items": [
+                {
+                    "id": item.id,
+                    "item_order": item.item_order,
+                    "check_item_name": item.check_item_name,
+                    "standard_benchmark": item.standard_benchmark,
+                    "is_required": item.is_required,
+                    "guide_image_id": item.guide_image_id
+                } for item in items
+            ]
         })
     return BaseResponse(data=results)
 
@@ -212,6 +222,80 @@ def bump_plan_version(
     plan.updated_by = current_user.id
     db.commit()
     return BaseResponse(data={"plan_id": plan.id, "version_no": new_version}, message=f"维护计划版本已升级至 {new_version} 并完成历史快照固化")
+
+@router.get("/plans/{plan_id}", response_model=BaseResponse)
+def get_plan_detail(
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    plan = db.query(MaintenancePlan).filter(MaintenancePlan.id == plan_id, MaintenancePlan.is_deleted == False).first()
+    if not plan:
+        raise BusinessException(code=40001, message="维护计划不存在", status_code=404)
+    items = db.query(MaintenancePlanItem).filter(MaintenancePlanItem.plan_id == plan.id).order_by(MaintenancePlanItem.item_order).all()
+    adv_days = getattr(plan, "advance_notice_days", None)
+    if adv_days is None:
+        adv_hours = getattr(plan, "advance_warning_hours", 48) or 48
+        adv_days = max(1, round(adv_hours / 24.0))
+
+    data = {
+        "id": plan.id,
+        "plan_code": plan.plan_code,
+        "plan_name": plan.plan_name,
+        "plan_type": plan.plan_type,
+        "trigger_mode": getattr(plan, "trigger_mode", "CALENDAR") or "CALENDAR",
+        "interval_days": plan.interval_days,
+        "interval_hours": getattr(plan, "interval_hours", plan.interval_days * 24),
+        "advance_notice_days": adv_days,
+        "advance_warning_hours": getattr(plan, "advance_warning_hours", 48) or 48,
+        "version_no": plan.version_no,
+        "sop_content": plan.sop_content,
+        "is_active": getattr(plan, "is_active", True),
+        "equipment_ids": getattr(plan, "equipment_ids", []) or [],
+        "items_count": len(items),
+        "items": [
+            {
+                "id": item.id,
+                "item_order": item.item_order,
+                "check_item_name": item.check_item_name,
+                "standard_benchmark": item.standard_benchmark,
+                "is_required": item.is_required,
+                "guide_image_id": item.guide_image_id
+            } for item in items
+        ]
+    }
+    return BaseResponse(data=data)
+
+@router.delete("/plans/{plan_id}", response_model=BaseResponse)
+def delete_plan(
+    plan_id: int,
+    current_user: User = Depends(require_role("ADMIN")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    plan = db.query(MaintenancePlan).filter(MaintenancePlan.id == plan_id, MaintenancePlan.is_deleted == False).first()
+    if not plan:
+        raise BusinessException(code=40001, message="维护计划不存在", status_code=404)
+    plan.is_deleted = True
+    plan.updated_by = current_user.id
+    db.commit()
+    return BaseResponse(message="维护计划已成功删除")
+
+@router.put("/plans/{plan_id}/toggle-status", response_model=BaseResponse)
+def toggle_plan_status(
+    plan_id: int,
+    current_user: User = Depends(require_role("ADMIN", "ENGINEER")),
+    _fcp: User = Depends(check_fcp_status),
+    db: Session = Depends(get_db)
+):
+    plan = db.query(MaintenancePlan).filter(MaintenancePlan.id == plan_id, MaintenancePlan.is_deleted == False).first()
+    if not plan:
+        raise BusinessException(code=40001, message="维护计划不存在", status_code=404)
+    plan.is_active = not getattr(plan, "is_active", True)
+    plan.updated_by = current_user.id
+    db.commit()
+    return BaseResponse(data={"is_active": plan.is_active}, message=f"维护计划已{'启用' if plan.is_active else '停用'}")
 
 @router.get("/my-tasks", response_model=BaseResponse)
 def get_my_tasks(
